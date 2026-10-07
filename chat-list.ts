@@ -475,8 +475,12 @@ export function sortFoldersByActivity<
   },
 ): TFolder[] {
   const list = [...folders];
+  const storedPosition = new Map(
+    list.map((folder, index) => [folder, index] as const),
+  );
   const manual = (a: TFolder, b: TFolder) =>
-    (a.sort ?? 0) - (b.sort ?? 0) || a.id.localeCompare(b.id);
+    (a.sort ?? 0) - (b.sort ?? 0) ||
+    storedPosition.get(a)! - storedPosition.get(b)!;
   if (!params.enabled) return list.sort(manual);
   return list.sort((a, b) => {
     const sa = folderActivity({

@@ -564,6 +564,24 @@ describe("auto-collapsing inactive sections", () => {
     ).toEqual(["idle", "fresh", "busy", "reply"]);
   });
 
+  it("preserves the server's stored project order in manual mode", () => {
+    const roots = [
+      { id: "project-z", projectId: "project-z" },
+      { id: "project-a", projectId: "project-a" },
+      { id: "project-m", projectId: "project-m" },
+    ];
+
+    expect(
+      sortFoldersByActivity(roots, {
+        enabled: false,
+        root: true,
+        folders: [],
+        bindings: {},
+        threads: [],
+      }).map((root) => root.id),
+    ).toEqual(["project-z", "project-a", "project-m"]);
+  });
+
   it("does not raise a section when you only open a chat", () => {
     const now = 60_000_000;
     const siblings = [
