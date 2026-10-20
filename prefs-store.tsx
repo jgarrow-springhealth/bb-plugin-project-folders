@@ -83,7 +83,14 @@ export function usePrefs() {
     [rpc],
   );
   const saveItem = useCallback(
-    async (key: string, style: ItemStyle | null) => {
+    async (key: string, raw: ItemStyle | null) => {
+      // A cleared field (`hidden: undefined`) must leave the object, not
+      // travel as an explicit undefined/null that the RPC schema refuses.
+      const style = raw
+        ? (Object.fromEntries(
+            Object.entries(raw).filter(([, v]) => v !== undefined),
+          ) as ItemStyle)
+        : null;
       const previous = state;
       const items = { ...state.items };
       if (style && !isEmptyItem(style)) items[key] = style;

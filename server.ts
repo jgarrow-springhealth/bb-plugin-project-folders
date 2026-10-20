@@ -181,6 +181,23 @@ const requestSchema = z.object({
     .optional(),
 });
 export type ComposerRequest = z.input<typeof requestSchema>;
+const externalRowSchema = z
+  .object({
+    id: z.string().min(1).max(200),
+    projectId: z.string().min(1).max(200),
+    title: z.string().min(1).max(500),
+    subtitle: z.string().max(500).optional(),
+    href: z.string().regex(/^\/plugins\/[A-Za-z0-9_-]+\/.+/),
+    status: z.enum(["running", "attention", "done", "neutral"]),
+    statusLabel: z.string().min(1).max(200),
+    count: z.number().int().nonnegative().optional(),
+    updatedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ExternalRow = z.infer<typeof externalRowSchema>;
+const externalRowsSyncInput = z
+  .object({ rows: z.array(externalRowSchema).max(300) })
+  .strict();
 export const sectionsContract = defineRpcContract({
   sections_list: {
     input: z.object({ projectId: z.string().min(1).optional() }).strict(),
@@ -304,7 +321,13 @@ export const rpcContract = defineRpcContract({
       machines: z.array(
         z.object({ id: z.string(), name: z.string(), connected: z.boolean() }),
       ),
+      /** Thread-shaped links contributed by other plugins for a BB project. */
+      externalRows: z.array(externalRowSchema),
     }),
+  },
+  external_rows_sync: {
+    input: externalRowsSyncInput,
+    output: z.object({ changed: z.boolean() }),
   },
   machines: {
     input: z.null(),
@@ -643,6 +666,15 @@ export const rpcContract = defineRpcContract({
     }),
     output: z.object({ ok: z.literal(true) }),
   },
+  /**
+   * The chat each given chat was forked from. BB's sidebar rows carry no link
+   * for a fork (its `parentThreadId` is empty), so the sidebar asks here to
+   * nest a fork under the chat it came from. A source never changes.
+   */
+  fork_sources: {
+    input: z.object({ threadIds: z.array(z.string()).max(200) }),
+    output: z.object({ sources: z.record(z.string(), z.string().nullable()) }),
+  },
   backup_export: {
     input: z.null(),
     output: backupPayloadSchema,
@@ -656,7 +688,9 @@ export const rpcContract = defineRpcContract({
   },
 });
 const pluginVersion = (
-  JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as {
+  JSON.parse(
+    readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+  ) as {
     version: string;
   }
 ).version;
@@ -781,6 +815,9 @@ export default async function plugin(bb: BbPluginApi) {
     `INSERT INTO folders_v2 (id, projectId, hostId, parentId, name, path, sort, kind) SELECT id, projectId, hostId, parentId, name, path, sort, kind FROM folders`,
     `DROP TABLE folders`,
     `ALTER TABLE folders_v2 RENAME TO folders`,
+    // Thread-shaped project links contributed by another plugin. `source` is
+    // derived from the authenticated plugin caller, never accepted as input.
+    `CREATE TABLE external_rows (source TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (source, id))`,
   ]);
   type AgentsSettings = {
     agents_auto_create: boolean;
@@ -1328,9 +1365,13 @@ export default async function plugin(bb: BbPluginApi) {
     const sources = (project?.sources ?? []).filter(
       (s) => s.type === "local_path",
     );
-    const home =
-      sources.find((s) => s.isDefault)?.hostId ?? sources[0]?.hostId;
-    return named(offeredMachineIds(home, sources.map((s) => s.hostId)));
+    const home = sources.find((s) => s.isDefault)?.hostId ?? sources[0]?.hostId;
+    return named(
+      offeredMachineIds(
+        home,
+        sources.map((s) => s.hostId),
+      ),
+    );
   };
   /**
    * Agents belong to the CLI Agents plugin: it discovers them on the machine
@@ -1666,6 +1707,52 @@ export default async function plugin(bb: BbPluginApi) {
   }
   const changed = () => bb.realtime.publish("changed", {});
   notifyGithubChange = changed;
+  const externalRows = (): ExternalRow[] => {
+    const rows: ExternalRow[] = [];
+    for (const stored of db.prepare("SELECT data FROM external_rows").all() as {
+      data: string;
+    }[]) {
+      const parsed = externalRowSchema.safeParse(safeJson(stored.data));
+      if (parsed.success) rows.push(parsed.data);
+    }
+    return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+  };
+  type RpcCallerContext = {
+    experimental_caller?:
+      { kind: "plugin"; pluginId: string } | { kind: "client" };
+  };
+  const externalRowsSync = (
+    input: z.infer<typeof externalRowsSyncInput>,
+    context?: RpcCallerContext,
+  ) => {
+    const caller = context?.experimental_caller;
+    if (caller?.kind !== "plugin")
+      throw new Error(
+        "Only another installed plugin can contribute project rows.",
+      );
+    const source = caller.pluginId;
+    const next = input.rows
+      .map((row) => ({ id: row.id, data: JSON.stringify(row) }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const previous = (
+      db
+        .prepare(
+          "SELECT id, data FROM external_rows WHERE source=? ORDER BY id",
+        )
+        .all(source) as { id: string; data: string }[]
+    ).map((row) => ({ id: row.id, data: row.data }));
+    if (JSON.stringify(previous) === JSON.stringify(next))
+      return { changed: false };
+    db.transaction(() => {
+      db.prepare("DELETE FROM external_rows WHERE source=?").run(source);
+      const insert = db.prepare(
+        "INSERT INTO external_rows (source, id, data) VALUES (?, ?, ?)",
+      );
+      for (const row of next) insert.run(source, row.id, row.data);
+    })();
+    changed();
+    return { changed: true };
+  };
   const agentsFile = (f: Folder) => path.join(f.path, "AGENTS.md");
   const isMissing = (e: unknown) =>
     /not.found|ENOENT|does not exist/i.test(String(e));
@@ -1855,7 +1942,9 @@ export default async function plugin(bb: BbPluginApi) {
       placed ??
       (atProject
         ? root
-        : sectionForMatches(foldersAt(env.hostId, env.path ?? "", t.projectId)));
+        : sectionForMatches(
+            foldersAt(env.hostId, env.path ?? "", t.projectId),
+          ));
     if (!f)
       throw new Error("The chat working folder is not registered in the tree.");
     return { t, f };
@@ -2527,6 +2616,7 @@ export default async function plugin(bb: BbPluginApi) {
         roots: listedRoots,
         bindings,
         places,
+        externalRows: externalRows(),
         machines: machines.map((h) => ({
           id: h.id,
           name: h.name,
@@ -2541,6 +2631,7 @@ export default async function plugin(bb: BbPluginApi) {
         ).map((e) => `${e.threadId}: ${e.error}`),
       };
     },
+    external_rows_sync: externalRowsSync,
     machines: async () => ({
       machines: (await bb.sdk.hosts.list()).map((h) => ({
         id: h.id,
@@ -3541,6 +3632,20 @@ export default async function plugin(bb: BbPluginApi) {
       bb.realtime.publish("prefs", {});
       return { ok: true as const };
     },
+    fork_sources: async ({ threadIds }) => {
+      const sources: Record<string, string | null> = {};
+      await Promise.all(
+        threadIds.map(async (threadId) => {
+          try {
+            const t = await bb.sdk.threads.get({ threadId });
+            sources[threadId] = t.sourceThreadId ?? null;
+          } catch {
+            sources[threadId] = null;
+          }
+        }),
+      );
+      return { sources };
+    },
     backup_export: () => ({
       kind: BACKUP_KIND,
       version: BACKUP_VERSION,
@@ -3807,8 +3912,7 @@ export default async function plugin(bb: BbPluginApi) {
         name: "restore",
         summary:
           "Restore a section from the archive, or plugin data from a backup file",
-        usage:
-          "bb project-folders restore <archive-id|file> [--merge]",
+        usage: "bb project-folders restore <archive-id|file> [--merge]",
       },
       {
         name: "backup",

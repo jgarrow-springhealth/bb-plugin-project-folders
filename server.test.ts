@@ -43,6 +43,19 @@ async function setup(settings?: Record<string, string | boolean>) {
   await plugin(h.bb);
   return { ...h, writes };
 }
+describe("external project rows", () => {
+  it("rejects project-row writes from clients", async () => {
+    const h = await setup();
+    try {
+      await expect(
+        h.harness.behavior.callRpc("external_rows_sync", { rows: [] }),
+      ).rejects.toThrow(/another installed plugin/);
+    } finally {
+      await h.harness.lifecycle.dispose();
+    }
+  });
+});
+
 const agentsFields = {
   agents_auto_create: "autoCreate",
   agents_template: "template",
@@ -365,6 +378,34 @@ describe("shared preferences", () => {
       expect(config.autoCreate).toBe(false);
       expect(config.template).toBe("Старый шаблон");
       expect(config.projectTemplate).toContain("# Project rules");
+    } finally {
+      await h.harness.lifecycle.dispose();
+    }
+  });
+
+  it("reports which chat each fork came from", async () => {
+    const h = await setup();
+    try {
+      h.harness.inspection.sdk.stub("threads.get", async (args) => {
+        const { threadId } = args as { threadId: string };
+        if (threadId === "gone") throw new Error("not found");
+        return {
+          ...makeThreadResponse({
+            id: threadId,
+            projectId: "p1",
+            environmentId: "e1",
+          }),
+          sourceThreadId: threadId === "fork" ? "original" : null,
+        };
+      });
+      const result = (await h.harness.behavior.callRpc("fork_sources", {
+        threadIds: ["fork", "plain", "gone"],
+      })) as { sources: Record<string, string | null> };
+      expect(result.sources).toEqual({
+        fork: "original",
+        plain: null,
+        gone: null,
+      });
     } finally {
       await h.harness.lifecycle.dispose();
     }
@@ -2256,10 +2297,18 @@ it("lets several sections share one folder and add a path on another device", as
     expect(ads.path).toBe("/srv/sites/muse");
     expect(smm.path).toBe("/srv/sites/muse");
     const listed = (await call("list", null)) as {
-      folders: { id: string; name: string; path: string; paths?: { hostId: string; path: string }[] }[];
+      folders: {
+        id: string;
+        name: string;
+        path: string;
+        paths?: { hostId: string; path: string }[];
+      }[];
     };
     expect(
-      listed.folders.filter((f) => f.path === "/srv/sites/muse").map((f) => f.name).sort(),
+      listed.folders
+        .filter((f) => f.path === "/srv/sites/muse")
+        .map((f) => f.name)
+        .sort(),
     ).toEqual(["Ads", "SEO", "SMM"]);
     const root = (await call("create", {
       projectId: "p1",
@@ -2311,7 +2360,11 @@ it("keeps chats on the parent when a child shares its folder", async () => {
       { id: "e-root", projectId: "p1", hostId: "h1", path: "/work" },
     ]);
     h.harness.inspection.sdk.stub("threads.get", async () =>
-      makeThreadResponse({ id: "t1", projectId: "p1", environmentId: "e-site" }),
+      makeThreadResponse({
+        id: "t1",
+        projectId: "p1",
+        environmentId: "e-site",
+      }),
     );
     h.harness.inspection.sdk.stub("environments.get", async () => ({
       projectId: "p1",
@@ -2624,9 +2677,32 @@ describe("sections for other plugins", () => {
   it("lists a project's sections with their folders through a discoverable contract", async () => {
     const h = await setup();
     try {
-      const f = (await h.harness.behavior.callRpc("create", { projectId: "p1", folderId: null, name: "Nested", relativePath: "nested" })) as { id: string };
-      const listed = (await h.harness.behavior.callRpc("sections_list", { projectId: "p1" })) as { sections: Array<{ id: string; path: string; parentId: string | null; kind: string }> };
-      expect(listed.sections).toEqual(expect.arrayContaining([expect.objectContaining({ id: f.id, path: "/work/nested", parentId: null, kind: "folder" })]));
+      const f = (await h.harness.behavior.callRpc("create", {
+        projectId: "p1",
+        folderId: null,
+        name: "Nested",
+        relativePath: "nested",
+      })) as { id: string };
+      const listed = (await h.harness.behavior.callRpc("sections_list", {
+        projectId: "p1",
+      })) as {
+        sections: Array<{
+          id: string;
+          path: string;
+          parentId: string | null;
+          kind: string;
+        }>;
+      };
+      expect(listed.sections).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: f.id,
+            path: "/work/nested",
+            parentId: null,
+            kind: "folder",
+          }),
+        ]),
+      );
     } finally {
       await h.harness.lifecycle.dispose();
     }

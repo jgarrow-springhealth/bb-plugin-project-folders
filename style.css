@@ -8,7 +8,8 @@
 .pf-tree button {
   cursor: pointer;
 }
-.pf-tree button:hover {
+.pf-tree button:hover,
+.pf-tree a.pf-icon:hover {
   background: var(--accent);
 }
 .pf-tree button:disabled {
@@ -38,9 +39,7 @@
   height: 18px;
 }
 .pf-github {
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
+  border-radius: 7px;
 }
 .pf-github svg {
   width: 14px;
@@ -95,6 +94,59 @@
   border-radius: 6px;
   min-height: 32px;
 }
+.pf-thread-children {
+  margin-inline-start: 10px;
+}
+.pf-tree .pf-thread-nest {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.pf-thread a .pf-status svg.pf-thread-branch,
+.pf-thread a .pf-status .pf-thread-fold svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted-foreground);
+}
+.pf-thread-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.pf-thread-fold:hover {
+  background: var(--accent);
+}
+.pf-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  opacity: 0.9;
+}
+.pf-thread-count {
+  flex: none;
+  min-width: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.pf[dir="rtl"] .pf-thread-branch {
+  transform: scaleX(-1);
+}
+.pf-thread-nest svg {
+  width: 12px;
+  height: 12px;
+}
 .pf-thread a {
   display: flex;
   align-items: center;
@@ -122,7 +174,50 @@
 .pf-status {
   font-size: 10px;
   flex: none;
-  width: 8px;
+  width: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+@keyframes pf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Larger, heavier and full-contrast so the in-flight icon reads at a glance. */
+.pf-thread a .pf-status {
+  width: 14px;
+}
+.pf-thread a .pf-status svg {
+  width: 14px;
+  height: 14px;
+  color: var(--foreground);
+}
+.pf-thread a .pf-status svg path {
+  stroke-width: 2;
+}
+.pf-status-spin {
+  animation: pf-spin 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pf-status-spin {
+    animation: none;
+  }
+}
+.pf-external-attention {
+  color: var(--destructive);
+}
+.pf-external-count {
+  flex: none;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: light-dark(#9a5a00, #f0b35a);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 16px;
+  text-align: center;
 }
 .pf-unread {
   font-weight: 650;
@@ -131,10 +226,18 @@
   background: var(--accent);
 }
 .pf-manage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--muted-foreground);
   font-size: 12px;
   padding: 8px;
   border-radius: 6px;
+}
+.pf-manage svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
 }
 .pf-panel {
   max-width: 1100px;
@@ -1928,4 +2031,7 @@
 /* A hidden project or section drawn while «Show hidden» is on. */
 .pf-hidden > :first-child {
   opacity: 0.55;
+}
+.pf-folder-spinner {
+  margin-left: 2px;
 }

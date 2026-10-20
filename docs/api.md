@@ -2,7 +2,7 @@
 title: API and commands
 type: component
 created: 2026-09-27
-updated: 2026-10-01
+updated: 2026-10-09
 status: active
 confidence: medium
 tags: [api, rpc, cli, host]
@@ -25,7 +25,7 @@ sources:
 ---
 # API and commands
 
-TL;DR: The plugin exposes typed BB plugin RPC, a read-only section-list RPC for other plugins, BB host operations and a `bb project-folders` CLI command group; it does not define standalone HTTP routes (`server.ts:187-621`, `server.ts:3359-3382`, `server.ts:3537-3632`).
+TL;DR: The plugin exposes typed BB plugin RPC, a read-only section-list RPC and an authenticated external-row sync for other plugins, BB host operations and a `bb project-folders` CLI command group; it does not define standalone HTTP routes.
 
 ## How it works
 
@@ -41,6 +41,7 @@ TL;DR: The plugin exposes typed BB plugin RPC, a read-only section-list RPC for 
 |---|---|---|---|---|
 | Plugin RPC | `BB RPC` | `<rpc-name>` | Plugin app, composer, settings and lifecycle handlers | BB plugin RPC boundary; no per-method user-auth check is defined in this plugin contract |
 | Cross-plugin RPC | `BB RPC` | `sections_list` | Other BB plugins, including section-aware integrations | BB plugin RPC boundary; read-only contract |
+| Cross-plugin RPC | `BB RPC` | `external_rows_sync` | Other installed plugins contributing thread-shaped project links | Authenticated plugin callers only; client callers are rejected |
 | Host API | `BB host contract` | `<operation>` | Plugin server via the selected host ID | BB host dispatch to the connected device; no separate plugin credential in this contract |
 | CLI | `BB CLI` | `bb project-folders <command>` | Local BB CLI user or agent | BB CLI/plugin command registration |
 
@@ -54,7 +55,8 @@ The path column names each operation in the registered plugin RPC contract; thes
 
 | Method | Path | Caller | Purpose | Auth |
 |---|---|---|---|---|
-| BB RPC | `list` | Sidebar, management page, composer | Load folders, roots, bindings, placements, errors and hosts | BB plugin RPC |
+| BB RPC | `list` | Sidebar, management page, composer | Load folders, roots, bindings, placements, contributed project rows, errors and hosts | BB plugin RPC |
+| BB RPC | `external_rows_sync` | Other installed plugins | Replace that caller plugin's thread-shaped links beneath BB projects | Authenticated plugin callers only |
 | BB RPC | `machines` | Project/section pickers | List connected host identities | BB plugin RPC |
 | BB RPC | `project_browse` | New project dialog | Browse directories on a host | BB plugin RPC |
 | BB RPC | `project_create` | New project dialog | Create a BB project from host and path | BB plugin RPC |
@@ -114,17 +116,19 @@ Contract schemas: `server.ts:415-573`; execution resolution: `execution.ts:97-12
 |---|---|---|---|---|
 | BB RPC | `prefs_get`, `prefs_save` | Appearance and chat-list settings | Read/save shared preferences and optionally replace item styles | BB plugin RPC |
 | BB RPC | `item_style_save` | Project/section appearance editor | Upsert/delete one item style | BB plugin RPC |
+| BB RPC | `fork_sources` | Sidebar tree | Look up the source chat of each given fork (`threads.get` → `sourceThreadId`) so forks nest under their original | BB plugin RPC |
 | BB RPC | `sync` | Thread actions/settings | Export one thread’s timeline to files | BB plugin RPC |
 
 Contract schemas: `server.ts:574-601`.
 
-## Cross-plugin section listing
+## Cross-plugin integration
 
 | Method | Path | Caller | Purpose | Auth |
 |---|---|---|---|---|
 | BB RPC | `sections_list` | Other plugins | Return section ID, project ID, parent, name, path, host and kind; optional project filter | BB plugin RPC; read-only |
+| BB RPC | `external_rows_sync` | Other installed plugins | Atomically replace the caller's project links, including route, state label, optional count and updated time | Requires `experimental_caller.kind === "plugin"`; source is the authenticated caller |
 
-The separate contract is declared and registered in `server.ts:170-185`, `server.ts:3360-3382`.
+`external_rows_sync` persists each caller's rows in `external_rows`. The sidebar renders them at their BB project root using the normal thread-row visual language, shows a spinner for running work and a finding-count badge for completed work, and emits the standard `changed` realtime signal only when the contributed set changes. Sending an empty array removes that plugin's rows.
 
 ## Host operations
 

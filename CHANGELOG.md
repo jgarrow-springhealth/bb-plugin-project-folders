@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — Active projects rise to the top
+
+- **Show hidden from the sidebar.** A button under the tree reads «Show hidden (N)» whenever something is hidden, and flips to «Hide hidden» while hidden items are showing. It is the same setting as on the management page.
+- **Hidden items stay at the bottom, unless they need you.** With «Show hidden» on, hidden projects and sections are listed after the visible ones. A hidden project or section with an unread reply or a running chat is shown even with «Show hidden» off and ranks with the visible ones; it goes back into hiding when the work is done and read.
+- **Showing a hidden project again works.** Clearing the hidden flag no longer sends an empty field that the server refused.
+- **Child chats nest under their parent.** Chats forked or spawned from another chat now sit indented beneath it, at any depth. Parents show a chevron in place of the bullet and a plain count on the right; clicking the chevron folds the children (a running or waiting parent keeps its status icon on the left, and its count becomes the fold button). Children start with a curved down-right arrow. Standalone chats get a 4px dot. The fold is remembered. A child filed in a different section, or whose parent is archived, stays top-level. A parent stays in the list while any chat below it is unread, running, pinned or open. Forks nest under the chat they were forked from and carry a fork icon instead of the arrow.
+- Projects BB lists without plugin folders are now sorted together with folder projects, so any project with an unread reply, a waiting question or a running chat moves to the top. Before, they always sat below.
+- A running chat means the agent, a workflow or background work is running. Drafts no longer lift a project or section as if they were running.
+- An error or success result you have not opened, and a chat waiting for your answer, count as needing a reply.
+
 ## 0.6.30 — Machine names in Own machine
 
 - The **Own machine** list is the place's machines (home host first, then folder paths), shown by their BB names. A host BB knows never appears as a raw id; an unknown pin shows as an unknown machine.

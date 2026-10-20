@@ -177,6 +177,88 @@ export function visibleChats<T extends ChatThread>(
     .slice(0, params.limit);
 }
 
+/** A chat that may have been forked or spawned from another one. */
+export type NestableChat = ChatThread & { parentThreadId?: string | null };
+
+/**
+ * Splits an already sorted list into top-level chats and the chats nested
+ * under each parent, keeping the incoming order at every level.
+ *
+ * A chat nests only when its parent is in the same list: a child filed in
+ * another section, or whose parent is archived, stands on its own rather than
+ * vanishing. A parent link that loops back on itself is broken by treating every
+ * chat in the loop as top-level.
+ */
+export function nestChats<T extends NestableChat>(
+  sorted: readonly T[],
+): { roots: T[]; children: Map<string, T[]> } {
+  const byId = new Map(sorted.map((c) => [c.id, c] as const));
+  const closesLoop = (chat: T) => {
+    const seen = new Set([chat.id]);
+    for (
+      let cur = chat.parentThreadId ? byId.get(chat.parentThreadId) : undefined;
+      cur;
+      cur = cur.parentThreadId ? byId.get(cur.parentThreadId) : undefined
+    ) {
+      if (seen.has(cur.id)) return cur.id === chat.id;
+      seen.add(cur.id);
+    }
+    return false;
+  };
+  const roots: T[] = [];
+  const children = new Map<string, T[]>();
+  for (const chat of sorted) {
+    const parent = chat.parentThreadId;
+    if (parent && parent !== chat.id && byId.has(parent) && !closesLoop(chat)) {
+      const list = children.get(parent) ?? [];
+      list.push(chat);
+      children.set(parent, list);
+    } else roots.push(chat);
+  }
+  return { roots, children };
+}
+
+/** Every chat below `chat`, at any depth. */
+export function descendantsOf<T extends NestableChat>(
+  chat: T,
+  children: ReadonlyMap<string, readonly T[]>,
+): T[] {
+  const out: T[] = [];
+  const stack = [...(children.get(chat.id) ?? [])];
+  while (stack.length) {
+    const next = stack.pop()!;
+    out.push(next);
+    stack.push(...(children.get(next.id) ?? []));
+  }
+  return out;
+}
+
+/**
+ * Top-level chats shown before «Show all». A parent stays when it, or any
+ * chat nested under it, is recent, unread, running, pinned or open, so a live
+ * child is never hidden behind an idle parent.
+ */
+export function visibleChatRoots<T extends NestableChat>(
+  roots: readonly T[],
+  children: ReadonlyMap<string, readonly T[]>,
+  params: {
+    expanded: boolean;
+    limit: number;
+    hideIdleMs: number;
+    now?: number;
+    activeThreadId?: string | null;
+  },
+): T[] {
+  if (params.expanded) return [...roots];
+  return roots
+    .filter((root) =>
+      [root, ...descendantsOf(root, children)].some((chat) =>
+        isChatKeptVisible(chat, params),
+      ),
+    )
+    .slice(0, params.limit);
+}
+
 export function getThreadActivity(thread: {
   updatedAt?: number;
   latestAttentionAt?: number;
@@ -218,6 +300,28 @@ export function isThreadBusy(thread: {
     if ((thread.activity.backgroundCommands ?? 0) > 0) return true;
   }
   return false;
+}
+
+/** Indicator kinds BB reports for a thread whose work is still in flight. */
+const IN_FLIGHT_INDICATORS: ReadonlySet<string> = new Set([
+  "runtime",
+  "workflow",
+  "background-agent",
+  "background-command",
+  "plan-mode",
+  "goal",
+]);
+
+/** True while the agent (or its background work) is still running. */
+export function isThreadInFlight(thread: {
+  indicator?: string;
+  hasPendingInteraction?: boolean;
+}): boolean {
+  return (
+    !thread.hasPendingInteraction &&
+    !!thread.indicator &&
+    IN_FLIGHT_INDICATORS.has(thread.indicator)
+  );
 }
 
 export function collectSubtreeFolderIds(
@@ -413,7 +517,38 @@ export function isSectionCollapsed<T extends ChatThread>(params: {
 }
 
 function threadNeedsReply<T extends ChatThread>(thread: T): boolean {
-  return !!thread.isUnread || !!thread.hasPendingInteraction;
+  return (
+    !!thread.isUnread ||
+    !!thread.hasPendingInteraction ||
+    thread.indicator === "unread-success" ||
+    thread.indicator === "unread-error" ||
+    thread.indicator === "waiting-for-input"
+  );
+}
+
+/**
+ * Work that is genuinely in progress: the agent, a workflow or background
+ * work is running. Unlike `isThreadBusy`, drafts and finished-but-unread
+ * indicators do not count, so they cannot lift a folder as if it were running.
+ */
+export function isThreadWorking<T extends ChatThread>(thread: T): boolean {
+  if (thread.status === "active") return true;
+  if (isThreadInFlight(thread)) return true;
+  const a = thread.activity;
+  return (
+    !!a &&
+    ((a.workflows ?? 0) > 0 ||
+      (a.backgroundAgents ?? 0) > 0 ||
+      (a.backgroundCommands ?? 0) > 0)
+  );
+}
+
+/** Order for the sidebar: needs a reply, then in progress, then most recent. */
+export function compareActivity(
+  a: { rank: number; activity: number },
+  b: { rank: number; activity: number },
+): number {
+  return b.rank - a.rank || b.activity - a.activity;
 }
 
 export function folderActivity<T extends ChatThread>(params: {
@@ -444,7 +579,7 @@ export function folderActivity<T extends ChatThread>(params: {
         )
   ).filter((t) => !t.isArchived);
   const unread = sectionThreads.some(threadNeedsReply);
-  const busy = sectionThreads.some(isThreadBusy);
+  const busy = sectionThreads.some(isThreadWorking);
   const activity = sectionThreads.length
     ? Math.max(...sectionThreads.map(getThreadActivity))
     : 0;
@@ -501,9 +636,7 @@ export function sortFoldersByActivity<
       places: params.places,
       threads: params.threads,
     });
-    if (sb.rank !== sa.rank) return sb.rank - sa.rank;
-    if (sb.activity !== sa.activity) return sb.activity - sa.activity;
-    return manual(a, b);
+    return compareActivity(sa, sb) || manual(a, b);
   });
 }
 
@@ -536,4 +669,37 @@ export function hasFolderUnread<T extends ChatThread>(params: {
     places,
   );
   return sectionThreads.some((t) => !t.isArchived && !!t.isUnread);
+}
+
+/**
+ * True when any chat in the folder, or in a folder nested under it, is in
+ * flight; for a project root, any chat of the project. Lets a collapsed folder
+ * show that something inside it is still running.
+ */
+export function hasFolderInFlight<T extends ChatThread>(params: {
+  folderId: string;
+  projectId: string;
+  root: boolean;
+  folders: readonly {
+    id: string;
+    projectId: string;
+    parentId: string | null;
+  }[];
+  bindings: Record<string, string>;
+  places?: Record<string, string>;
+  threads: readonly T[];
+}): boolean {
+  const { folderId, projectId, root, folders, bindings, places, threads } =
+    params;
+  const scoped = root
+    ? threads.filter((t) => t.projectId === projectId)
+    : collectFolderThreads(
+        folderId,
+        projectId,
+        folders,
+        bindings,
+        threads,
+        places,
+      );
+  return scoped.some((t) => !t.isArchived && isThreadInFlight(t));
 }

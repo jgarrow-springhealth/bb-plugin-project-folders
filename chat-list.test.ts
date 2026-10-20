@@ -12,6 +12,11 @@ import {
   isSectionInactive,
   isSectionCollapsed,
   hasFolderUnread,
+  hasFolderInFlight,
+  isThreadWorking,
+  nestChats,
+  visibleChatRoots,
+  folderActivity,
   INACTIVE_SECTION_THRESHOLD_MS,
   sortFoldersByActivity,
 } from "./chat-list";
@@ -85,7 +90,9 @@ describe("chat list order", () => {
       autoCollapseInactive: true,
     });
     expect(
-      parseSettings('{"sort":"activity","limit":10,"autoCollapseInactive":false}'),
+      parseSettings(
+        '{"sort":"activity","limit":10,"autoCollapseInactive":false}',
+      ),
     ).toEqual({
       sort: "activity",
       limit: 10,
@@ -107,7 +114,9 @@ describe("auto-collapsing inactive sections", () => {
   it("parses collapse state from both legacy boolean and timestamped formats", () => {
     expect(parseCollapseState(null)).toEqual({});
     expect(parseCollapseState("invalid")).toEqual({});
-    expect(parseCollapseState(JSON.stringify({ sec1: true, sec2: false }))).toEqual({
+    expect(
+      parseCollapseState(JSON.stringify({ sec1: true, sec2: false })),
+    ).toEqual({
       sec1: { collapsed: true, at: 0 },
       sec2: { collapsed: false, at: 0 },
     });
@@ -148,12 +157,8 @@ describe("auto-collapsing inactive sections", () => {
     const open = { ...idle, id: "open" };
 
     expect(getThreadAccess(recent)).toBe(now - day);
-    expect(
-      isChatKeptVisible(idle, { hideIdleMs, now }),
-    ).toBe(false);
-    expect(
-      isChatKeptVisible(recent, { hideIdleMs, now }),
-    ).toBe(true);
+    expect(isChatKeptVisible(idle, { hideIdleMs, now })).toBe(false);
+    expect(isChatKeptVisible(recent, { hideIdleMs, now })).toBe(true);
     expect(isChatKeptVisible(pinned, { hideIdleMs, now })).toBe(true);
     expect(isChatKeptVisible(unread, { hideIdleMs, now })).toBe(true);
     expect(isChatKeptVisible(busy, { hideIdleMs, now })).toBe(true);
@@ -179,10 +184,12 @@ describe("auto-collapsing inactive sections", () => {
       }).map((c) => c.id),
     ).toEqual(["recent", "idle"]);
     expect(
-      visibleChats(
-        [recent, { ...recent, id: "r2" }, idle],
-        { expanded: false, limit: 1, hideIdleMs, now },
-      ).map((c) => c.id),
+      visibleChats([recent, { ...recent, id: "r2" }, idle], {
+        expanded: false,
+        limit: 1,
+        hideIdleMs,
+        now,
+      }).map((c) => c.id),
     ).toEqual(["recent"]);
   });
 
@@ -190,7 +197,11 @@ describe("auto-collapsing inactive sections", () => {
     expect(getThreadActivity({ createdAt: 10 })).toBe(10);
     expect(getThreadActivity({ createdAt: 10, updatedAt: 20 })).toBe(20);
     expect(
-      getThreadActivity({ createdAt: 10, updatedAt: 20, latestAttentionAt: 30 }),
+      getThreadActivity({
+        createdAt: 10,
+        updatedAt: 20,
+        latestAttentionAt: 30,
+      }),
     ).toBe(30);
     // When thread is simply read, updatedAt matches lastReadAt and does not count as conversation activity
     expect(
@@ -506,10 +517,7 @@ describe("auto-collapsing inactive sections", () => {
       { id: "busy", projectId: "p1", parentId: null, sort: 2 },
       { id: "reply", projectId: "p1", parentId: null, sort: 3 },
     ];
-    const tree = [
-      ...siblings,
-      { id: "sec1", projectId: "p1", parentId: null },
-    ];
+    const tree = [...siblings, { id: "sec1", projectId: "p1", parentId: null }];
     const threads = [
       {
         id: "t-idle",
@@ -562,6 +570,47 @@ describe("auto-collapsing inactive sections", () => {
         threads,
       }).map((f) => f.id),
     ).toEqual(["idle", "fresh", "busy", "reply"]);
+  });
+
+  it("counts only real work as in progress, not drafts", () => {
+    expect(
+      isThreadWorking({ id: "a", projectId: "p", indicator: "runtime" }),
+    ).toBe(true);
+    expect(
+      isThreadWorking({
+        id: "a",
+        projectId: "p",
+        indicator: "none",
+        activity: { backgroundAgents: 1 },
+      }),
+    ).toBe(true);
+    for (const indicator of [
+      "draft",
+      "working-draft",
+      "none",
+      "unread-success",
+    ])
+      expect(isThreadWorking({ id: "a", projectId: "p", indicator })).toBe(
+        false,
+      );
+  });
+
+  it("ranks unread, waiting and in-progress projects above quiet ones", () => {
+    const rank = (thread: object) =>
+      folderActivity({
+        folderId: "p1",
+        projectId: "p1",
+        root: true,
+        folders: [],
+        bindings: {},
+        threads: [{ id: "t", projectId: "p1", ...thread }],
+      }).rank;
+    expect(rank({ indicator: "unread-success", isUnread: true })).toBe(3);
+    expect(rank({ indicator: "unread-error" })).toBe(3);
+    expect(rank({ hasPendingInteraction: true })).toBe(3);
+    expect(rank({ indicator: "runtime" })).toBe(2);
+    expect(rank({ indicator: "draft", updatedAt: 5 })).toBe(1);
+    expect(rank({ isArchived: true, isUnread: true })).toBe(0);
   });
 
   it("preserves the server's stored project order in manual mode", () => {
@@ -707,5 +756,119 @@ describe("auto-collapsing inactive sections", () => {
         threads: readThreads,
       }),
     ).toBe(false);
+  });
+
+  it("flags every parent folder of an in-flight chat", () => {
+    const threads = [
+      {
+        id: "t1",
+        projectId: "p1",
+        environment: { id: "env1" },
+        indicator: "none",
+      },
+      {
+        id: "t2",
+        projectId: "p1",
+        environment: { id: "env2" },
+        indicator: "runtime",
+      },
+    ];
+    const inFlight = (folderId: string, root = false, list = threads) =>
+      hasFolderInFlight({
+        folderId,
+        projectId: "p1",
+        root,
+        folders,
+        bindings,
+        threads: list,
+      });
+    expect(inFlight("sub1")).toBe(true);
+    expect(inFlight("sec1")).toBe(true);
+    expect(inFlight("p1", true)).toBe(true);
+    // A sibling subtree without running chats stays quiet.
+    expect(
+      hasFolderInFlight({
+        folderId: "sub1",
+        projectId: "p1",
+        root: false,
+        folders,
+        bindings,
+        threads: [threads[0]],
+      }),
+    ).toBe(false);
+    // Archived, waiting-for-input and finished chats are not in flight.
+    for (const extra of [
+      { isArchived: true },
+      { hasPendingInteraction: true },
+      { indicator: "unread-success" },
+    ]) {
+      expect(inFlight("sec1", false, [{ ...threads[1], ...extra }])).toBe(
+        false,
+      );
+    }
+  });
+
+  describe("nested chats", () => {
+    const chat = (
+      id: string,
+      parentThreadId: string | null = null,
+      extra = {},
+    ) => ({
+      id,
+      projectId: "p1",
+      parentThreadId,
+      updatedAt: 1,
+      ...extra,
+    });
+    const ids = (list: { id: string }[]) => list.map((c) => c.id);
+
+    it("nests a chat under its parent and keeps the incoming order", () => {
+      const { roots, children } = nestChats([
+        chat("a"),
+        chat("c1", "a"),
+        chat("b"),
+        chat("c2", "a"),
+        chat("g1", "c1"),
+      ]);
+      expect(ids(roots)).toEqual(["a", "b"]);
+      expect(ids(children.get("a")!)).toEqual(["c1", "c2"]);
+      expect(ids(children.get("c1")!)).toEqual(["g1"]);
+    });
+
+    it("keeps a chat top-level when its parent is not in the list", () => {
+      const { roots, children } = nestChats([chat("orphan", "elsewhere")]);
+      expect(ids(roots)).toEqual(["orphan"]);
+      expect(children.size).toBe(0);
+    });
+
+    it("breaks parent loops instead of hiding the chats", () => {
+      const { roots } = nestChats([
+        chat("a", "b"),
+        chat("b", "a"),
+        chat("s", "s"),
+      ]);
+      expect(ids(roots).sort()).toEqual(["a", "b", "s"]);
+    });
+
+    it("keeps an idle parent visible while a child is unread", () => {
+      const { roots, children } = nestChats([
+        chat("old", null, { updatedAt: 0 }),
+        chat("kid", "old", { isUnread: true }),
+        chat("other", null, { updatedAt: 0 }),
+      ]);
+      const params = {
+        expanded: false,
+        limit: 10,
+        hideIdleMs: 1000,
+        now: 10_000_000,
+      };
+      expect(ids(visibleChatRoots(roots, children, params))).toEqual(["old"]);
+      expect(
+        ids(visibleChatRoots(roots, children, { ...params, expanded: true })),
+      ).toEqual(["old", "other"]);
+      expect(
+        ids(visibleChatRoots(roots, children, { ...params, limit: 0 })),
+      ).toEqual([]);
+    });
   });
 });

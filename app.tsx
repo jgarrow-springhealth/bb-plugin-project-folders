@@ -48,12 +48,19 @@ import {
 } from "./execution";
 import {
   sortChats,
+  nestChats,
+  visibleChatRoots,
   visibleChats,
   isSectionCollapsed,
   parseCollapseState,
   placeOf,
   type CollapseRecord,
   hasFolderUnread,
+  hasFolderInFlight,
+  isThreadInFlight,
+  isThreadWorking,
+  folderActivity,
+  compareActivity,
   sortFoldersByActivity,
 } from "./chat-list";
 import { t, useLanguage, LanguagePicker, direction } from "./i18n";
@@ -62,7 +69,9 @@ import {
   useEffect,
   useState,
   useRef,
+  Fragment,
   type DragEventHandler,
+  type ReactNode,
 } from "react";
 import {
   definePluginApp,
@@ -72,12 +81,18 @@ import {
   experimental_useSidebarThreads,
   experimental_useSidebarThreadActions,
   experimental_NewThreadComposer as NewThreadComposer,
+  UrlLink,
   type PluginThreadListProps,
   type PluginNavPanelProps,
   type PluginSidebarThread,
 } from "@get-bb/plugin-sdk/app";
 import { createPortal } from "react-dom";
-import type { Folder, ComposerRequest, rpcContract } from "./server";
+import type {
+  Folder,
+  ComposerRequest,
+  ExternalRow,
+  rpcContract,
+} from "./server";
 import type { Archive } from "./archive";
 import {
   Dialog,
@@ -97,13 +112,6 @@ import {
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Icon } from "./components/ui/icon";
-import {
-  Content as TooltipContent,
-  Portal as TooltipPortal,
-  Provider as TooltipProvider,
-  Root as Tooltip,
-  Trigger as TooltipTrigger,
-} from "@radix-ui/react-tooltip";
 import "./style.css";
 type Target = { projectId: string; folderId: string | null };
 type Modal = {
@@ -344,6 +352,7 @@ function useTree() {
     places: Record<string, string>;
     errors: string[];
     machines: { id: string; name: string; connected: boolean }[];
+    externalRows: ExternalRow[];
   }>({
     folders: [],
     roots: [],
@@ -351,13 +360,18 @@ function useTree() {
     places: {},
     errors: [],
     machines: [],
+    externalRows: [],
   });
   const [error, setError] = useState("");
   const refresh = useCallback(() => {
     rpc.call("list").then(
       (d) => {
-        // A server that predates hand-filed places simply has none.
-        setData({ ...d, places: d.places ?? {} });
+        // Older servers simply have no hand-filed places or contributed rows.
+        setData({
+          ...d,
+          places: d.places ?? {},
+          externalRows: d.externalRows ?? [],
+        });
         setError("");
       },
       (e) => setError(String(e)),
@@ -1684,6 +1698,29 @@ function CopiesDialog({
     </Dialog>
   );
 }
+/**
+ * Icons for in-flight threads, matching BB's own sidebar status glyph: the
+ * spinning `Loading` icon while the agent is working, and a shining icon per
+ * kind of background work.
+ */
+const IN_FLIGHT_ICONS: Partial<Record<string, string>> = {
+  runtime: "Loading",
+  workflow: "Workflow",
+  "background-agent": "UserRoundPlus",
+  "background-command": "Terminal",
+  "plan-mode": "ListTodo",
+  goal: "Target",
+};
+/** BB's spinning loading icon, shown on a folder with running chats inside. */
+function InFlightSpinner() {
+  return (
+    <Icon
+      name="Loading"
+      className="pf-status-spin pf-folder-spinner"
+      aria-label={t("Есть работающие чаты")}
+    />
+  );
+}
 function ThreadRow({
   thread,
   active,
@@ -1692,7 +1729,13 @@ function ThreadRow({
   onUnplace,
   worksIn,
   onDrag,
+  nested,
+  childKind,
 }: {
+  /** Chats started from this one: a toggle on the row shows or hides them. */
+  nested?: { count: number; open: boolean; onToggle: () => void };
+  /** Nested under another chat: a curved arrow for a spawned chat, a fork icon for a fork. */
+  childKind?: "spawn" | "fork";
   onMove: (thread: PluginSidebarThread) => void;
   /** Present while the chat is filed somewhere it does not work. */
   onUnplace?: () => void;
@@ -1745,6 +1788,8 @@ function ThreadRow({
       setSaving(false);
     }
   };
+  const statusTakesSlot =
+    thread.hasPendingInteraction || !!IN_FLIGHT_ICONS[thread.indicator];
   return (
     <div
       className={"pf-thread " + (active === thread.id ? "pf-active" : "")}
@@ -1806,11 +1851,52 @@ function ThreadRow({
             className="pf-status"
             aria-label={thread.indicatorLabel ?? undefined}
           >
-            {thread.hasPendingInteraction
-              ? "◉"
-              : thread.indicator === "runtime"
-                ? "●"
-                : "·"}
+            {thread.hasPendingInteraction ? (
+              "◉"
+            ) : IN_FLIGHT_ICONS[thread.indicator] ? (
+              <Icon
+                name={IN_FLIGHT_ICONS[thread.indicator]!}
+                className={
+                  thread.indicator === "runtime"
+                    ? "pf-status-spin"
+                    : "animate-shine-icon"
+                }
+                aria-hidden="true"
+              />
+            ) : nested ? (
+              <span
+                role="button"
+                tabIndex={0}
+                className="pf-thread-fold"
+                aria-expanded={nested.open}
+                aria-label={`${nested.open ? t("Свернуть список") : t("Показать все")} (${nested.count})`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  nested.onToggle();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    nested.onToggle();
+                  }
+                }}
+              >
+                <Icon
+                  name={nested.open ? "ChevronDown" : "ChevronRight"}
+                  aria-hidden="true"
+                />
+              </span>
+            ) : childKind ? (
+              <Icon
+                name={childKind === "fork" ? "Fork" : "CornerDownRight"}
+                className="pf-thread-branch"
+                aria-hidden="true"
+              />
+            ) : (
+              <span className="pf-dot" aria-hidden="true" />
+            )}
           </span>
           {thread.isPinned && <Icon name="Pin" />}
           <span
@@ -1837,6 +1923,27 @@ function ThreadRow({
           {renameError}
         </span>
       )}
+      {nested &&
+        (statusTakesSlot ? (
+          // The left slot shows a running or waiting mark, so the fold
+          // toggle stays here, beside the count.
+          <button
+            className="pf-thread-nest"
+            aria-expanded={nested.open}
+            aria-label={`${nested.open ? t("Свернуть список") : t("Показать все")} (${nested.count})`}
+            onClick={(event) => {
+              event.stopPropagation();
+              nested.onToggle();
+            }}
+          >
+            <Icon name={nested.open ? "ChevronDown" : "ChevronRight"} />
+            <span>{nested.count}</span>
+          </button>
+        ) : (
+          <span className="pf-thread-count" aria-hidden="true">
+            {nested.count}
+          </span>
+        ))}
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <button className="pf-icon" aria-label={t("Действия чата")}>
@@ -1897,11 +2004,58 @@ function ThreadRow({
     </div>
   );
 }
+/** A plugin-owned route that lives beside normal chats in its BB project. */
+function ExternalRowLink({
+  row,
+  onNavigate,
+}: {
+  row: ExternalRow;
+  onNavigate: () => void;
+}) {
+  const icon =
+    row.status === "running"
+      ? "Loading"
+      : row.status === "attention"
+        ? "TriangleAlert"
+        : null;
+  return (
+    <div className="pf-thread pf-external-row">
+      <UrlLink
+        href={row.href}
+        target="_self"
+        onClick={onNavigate}
+        title={row.statusLabel}
+      >
+        <span
+          className={`pf-status pf-external-${row.status}`}
+          aria-hidden="true"
+        >
+          {icon ? (
+            <Icon
+              name={icon}
+              className={
+                row.status === "running" ? "pf-status-spin" : undefined
+              }
+              aria-hidden="true"
+            />
+          ) : (
+            <span className="pf-dot" aria-hidden="true" />
+          )}
+        </span>
+        <span className="pf-thread-title">{row.title}</span>
+        {row.status === "done" && row.count !== undefined && (
+          <span className="pf-external-count">{row.count}</span>
+        )}
+      </UrlLink>
+    </div>
+  );
+}
 function FolderHeading({
   folder,
   root,
   closed,
   unread = false,
+  inFlight = false,
   highlighted,
   refused = false,
   rulesAllowed,
@@ -1936,6 +2090,8 @@ function FolderHeading({
   onToggleHidden?: () => void;
   closed: boolean;
   unread?: boolean;
+  /** A chat in this folder (or one nested under it) is still running. */
+  inFlight?: boolean;
   highlighted: boolean;
   /** The highlighted row refuses this chat: shown, but not as a promise. */
   refused?: boolean;
@@ -1998,40 +2154,28 @@ function FolderHeading({
         />
         <Glyph {...look} />
         <span>{folder.name}</span>
+        {inFlight && <InFlightSpinner />}
         {device && <span className="pf-host-badge">{device}</span>}
       </button>
       {!group && folder.githubUrl && (
-        <TooltipProvider delayDuration={300}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <a
-                className={
-                  folder.githubPrivate
-                    ? "pf-icon pf-github pf-github-private"
-                    : "pf-icon pf-github"
-                }
-                href={folder.githubUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={
-                  folder.githubPrivate
-                    ? t("Открыть приватный репозиторий GitHub")
-                    : t("Открыть репозиторий GitHub")
-                }
-                onClick={(event) => event.stopPropagation()}
-              >
-                <Icon name="Github" />
-              </a>
-            </TooltipTrigger>
-            <TooltipPortal>
-              <TooltipContent>
-                {folder.githubPrivate
-                  ? t("Приватный репозиторий GitHub")
-                  : folder.githubUrl}
-              </TooltipContent>
-            </TooltipPortal>
-          </Tooltip>
-        </TooltipProvider>
+        <a
+          className={
+            folder.githubPrivate
+              ? "pf-icon pf-github pf-github-private"
+              : "pf-icon pf-github"
+          }
+          href={folder.githubUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={
+            folder.githubPrivate
+              ? t("Открыть приватный репозиторий GitHub")
+              : t("Открыть репозиторий GitHub")
+          }
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Icon name="Github" />
+        </a>
       )}
       {!group && (
         <button
@@ -2149,11 +2293,36 @@ function FolderHeading({
 function Tree(props: PluginThreadListProps) {
   const language = useLanguage();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  /** Chats whose nested chats are folded away; the default is open. */
+  const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(() => {
+    try {
+      const raw = JSON.parse(
+        localStorage.getItem("project-folders:collapsed-threads") ?? "[]",
+      );
+      return new Set(Array.isArray(raw) ? raw.map(String) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleThreadChildren = (id: string) =>
+    setCollapsedThreads((old) => {
+      const next = new Set(old);
+      if (!next.delete(id)) next.add(id);
+      try {
+        localStorage.setItem(
+          "project-folders:collapsed-threads",
+          JSON.stringify([...next]),
+        );
+      } catch {
+        // Storage refused: the fold still holds until the page reloads.
+      }
+      return next;
+    });
   const { rpc, data, error, refresh } = useTree();
   const { prefs, look } = useFolderLook(data.folders);
   const listSettings = prefs.chatList;
   // Hidden projects and sections stay out of the tree unless «Show hidden» is on; their chats keep working.
-  const { items, saveItem } = usePrefs();
+  const { items, saveItem, savePrefs } = usePrefs();
   const showHidden = prefs.view.showHidden;
   const hiddenKey = (f: Folder, root: boolean) =>
     root ? projectKey(f.projectId) : folderKey(f.id);
@@ -2166,6 +2335,11 @@ function Tree(props: PluginThreadListProps) {
       hidden: isHidden(f, root) ? undefined : true,
     }).catch((e) => alert(String(e)));
   };
+  const toggleShowHidden = () =>
+    void savePrefs({
+      ...prefs,
+      view: { ...prefs.view, showHidden: !showHidden },
+    }).catch((e) => alert(String(e)));
   const [styling, setStyling] = useState<{
     projectId: string;
     folder: Folder | null;
@@ -2173,6 +2347,57 @@ function Tree(props: PluginThreadListProps) {
   } | null>(null);
   const [regrouping, setRegrouping] = useState<Folder | null>(null);
   const { threads, projects, status } = experimental_useSidebarThreads();
+  /** Where each fork came from, asked once per fork: a source never changes. */
+  const [forkSources, setForkSources] = useState<Record<string, string | null>>(
+    {},
+  );
+  const forkIdsToAsk = threads
+    .filter(
+      (t) =>
+        t.originKind === "fork" && !t.parentThreadId && !(t.id in forkSources),
+    )
+    .map((t) => t.id)
+    .slice(0, 200)
+    .join(",");
+  useEffect(() => {
+    if (!forkIdsToAsk) return;
+    const threadIds = forkIdsToAsk.split(",");
+    let live = true;
+    rpc.call("fork_sources", { threadIds }).then(
+      (r) => live && setForkSources((old) => ({ ...old, ...r.sources })),
+      () =>
+        live &&
+        setForkSources((old) => ({
+          ...old,
+          ...Object.fromEntries(threadIds.map((id) => [id, null])),
+        })),
+    );
+    return () => {
+      live = false;
+    };
+  }, [forkIdsToAsk, rpc]);
+  /**
+   * Hidden, and nothing in it needs you. A hidden project or section with an
+   * unread reply or a running chat is surfaced and ranked like any other, so
+   * work in it is never lost track of.
+   */
+  const isQuietlyHidden = (f: Folder, root: boolean) =>
+    isHidden(f, root) &&
+    folderActivity({
+      folderId: f.id,
+      projectId: f.projectId,
+      root,
+      folders: data.folders,
+      bindings: data.bindings,
+      places: data.places,
+      threads,
+    }).rank < 2;
+  const hiddenCount =
+    new Set(
+      data.roots
+        .filter((r) => isQuietlyHidden(r, true))
+        .map((r) => r.projectId),
+    ).size + data.folders.filter((f) => isQuietlyHidden(f, false)).length;
   const environmentKey = threads.map((t) => t.environment?.id ?? "").join("|");
   useEffect(refresh, [environmentKey, refresh]);
   const actions = experimental_useSidebarThreadActions();
@@ -2391,7 +2616,7 @@ function Tree(props: PluginThreadListProps) {
     data.roots.filter(
       (r, i) =>
         data.roots.findIndex((x) => x.projectId === r.projectId) === i &&
-        (showHidden || !isHidden(r, true)),
+        (showHidden || !isQuietlyHidden(r, true)),
     ),
     {
       enabled: listSettings.sortSectionsByActivity,
@@ -2402,33 +2627,110 @@ function Tree(props: PluginThreadListProps) {
       threads,
     },
   );
+  /**
+   * Projects the plugin has folders for and projects it does not, in one list,
+   * so a project that needs attention rises to the top whichever kind it is.
+   * Ties keep the manual order: folder projects first, then the rest.
+   */
+  const topLevel = (() => {
+    const entries = [
+      ...visibleRoots.map((folder) => ({
+        kind: "root" as const,
+        folder,
+        projectId: folder.projectId,
+      })),
+      ...projects
+        .filter((p) => !data.roots.some((r) => r.projectId === p.id))
+        .map((project) => ({
+          kind: "project" as const,
+          project,
+          projectId: project.id,
+        })),
+    ];
+    // Hidden projects shown again sit below every visible one, however busy.
+    const hiddenLast = (list: typeof entries) => [
+      ...list.filter(
+        (e) => e.kind !== "root" || !isQuietlyHidden(e.folder, true),
+      ),
+      ...list.filter(
+        (e) => e.kind === "root" && isQuietlyHidden(e.folder, true),
+      ),
+    ];
+    if (!listSettings.sortSectionsByActivity) return hiddenLast(entries);
+    const score = new Map(
+      entries.map((e) => [
+        e,
+        folderActivity({
+          folderId: e.projectId,
+          projectId: e.projectId,
+          root: true,
+          folders: data.folders,
+          bindings: data.bindings,
+          places: data.places,
+          threads,
+        }),
+      ]),
+    );
+    return hiddenLast(
+      [...entries].sort((a, b) =>
+        compareActivity(score.get(a)!, score.get(b)!),
+      ),
+    );
+  })();
   const rows = (
     ts: readonly PluginSidebarThread[],
     group: string,
     sort = listSettings.sort,
     limit = listSettings.limit,
   ) => {
-    const sorted = sortChats(ts, sort, language);
+    // A fork carries no parent link of its own: nest it under its source.
+    const linked = ts.map((t) =>
+      !t.parentThreadId && forkSources[t.id]
+        ? { ...t, parentThreadId: forkSources[t.id] }
+        : t,
+    );
+    const sorted = sortChats(linked, sort, language);
+    const { roots, children } = nestChats(sorted);
     const listOpts = {
       limit,
       hideIdleMs: listSettings.hideIdleHours * 60 * 60 * 1000,
       activeThreadId: props.activeThreadId,
     };
-    const shown = visibleChats(sorted, {
+    const shown = visibleChatRoots(roots, children, {
       ...listOpts,
       expanded: !!expanded[group],
     });
     const hasHidden =
-      visibleChats(sorted, { ...listOpts, expanded: false }).length <
-      sorted.length;
-    return (
-      <>
-        {shown.map((thread) => (
+      visibleChatRoots(roots, children, { ...listOpts, expanded: false })
+        .length < roots.length;
+    const renderThread = (
+      thread: PluginSidebarThread,
+      isChild = false,
+    ): ReactNode => {
+      const kids = children.get(thread.id) ?? [];
+      const open = !collapsedThreads.has(thread.id);
+      return (
+        <Fragment key={thread.id}>
           <ThreadRow
-            key={thread.id}
             thread={thread}
+            childKind={
+              isChild
+                ? thread.originKind === "fork"
+                  ? "fork"
+                  : "spawn"
+                : undefined
+            }
             active={props.activeThreadId}
             onNavigate={props.onNavigate}
+            nested={
+              kids.length
+                ? {
+                    count: kids.length,
+                    open,
+                    onToggle: () => toggleThreadChildren(thread.id),
+                  }
+                : undefined
+            }
             onMove={(chat) => {
               setMoveError("");
               setMovingChat(chat);
@@ -2447,7 +2749,17 @@ function Tree(props: PluginThreadListProps) {
               }
             }}
           />
-        ))}
+          {kids.length > 0 && open && (
+            <div className="pf-thread-children">
+              {kids.map((kid) => renderThread(kid, true))}
+            </div>
+          )}
+        </Fragment>
+      );
+    };
+    return (
+      <>
+        {shown.map((thread) => renderThread(thread))}
         {hasHidden && (
           <button
             className="pf-show-more"
@@ -2483,12 +2795,12 @@ function Tree(props: PluginThreadListProps) {
   const node = (f: Folder, root = false): React.ReactNode => {
     const level = root ? 0 : sectionLevel(data.folders, f);
     const group = !root && isGroupFolder(f);
-    const children = sortFoldersByActivity(
+    const sortedChildren = sortFoldersByActivity(
       data.folders.filter(
         (c) =>
           c.projectId === f.projectId &&
           c.parentId === (root ? null : f.id) &&
-          (showHidden || !isHidden(c, false)),
+          (showHidden || !isQuietlyHidden(c, false)),
       ),
       {
         enabled: listSettings.sortSectionsByActivity,
@@ -2499,6 +2811,11 @@ function Tree(props: PluginThreadListProps) {
         threads,
       },
     );
+    // Hidden sections shown again sit below the visible ones.
+    const children = [
+      ...sortedChildren.filter((c) => !isQuietlyHidden(c, false)),
+      ...sortedChildren.filter((c) => isQuietlyHidden(c, false)),
+    ];
     const target = { projectId: f.projectId, folderId: root ? null : f.id };
     const ts = threads.filter(
       (t) =>
@@ -2514,13 +2831,26 @@ function Tree(props: PluginThreadListProps) {
       places: data.places,
       threads,
     });
+    const virtualRows = root
+      ? data.externalRows.filter((row) => row.projectId === f.projectId)
+      : [];
+    const folderInFlight =
+      hasFolderInFlight({
+        folderId: f.id,
+        projectId: f.projectId,
+        root,
+        folders: data.folders,
+        bindings: data.bindings,
+        places: data.places,
+        threads,
+      }) || virtualRows.some((row) => row.status === "running");
     const folderLook = look(f.projectId, root ? null : f);
     return (
       <div
         key={f.id}
         className={
           (root ? "pf-project" : "pf-folder") +
-          (isHidden(f, root) ? " pf-hidden" : "")
+          (isQuietlyHidden(f, root) ? " pf-hidden" : "")
         }
       >
         <FolderHeading
@@ -2530,6 +2860,7 @@ function Tree(props: PluginThreadListProps) {
           onToggleHidden={() => toggleHidden(f, root)}
           closed={folderClosed}
           unread={folderUnread && listSettings.boldUnread}
+          inFlight={folderInFlight}
           highlighted={dropTarget === f.id}
           refused={dropTarget === f.id && !!dropReason}
           rulesAllowed={root || !group}
@@ -2640,6 +2971,13 @@ function Tree(props: PluginThreadListProps) {
         {!folderClosed && (
           <div className="pf-children">
             {children.map((c) => node(c, false))}
+            {virtualRows.slice(0, folderLook.limit).map((row) => (
+              <ExternalRowLink
+                key={row.id}
+                row={row}
+                onNavigate={props.onNavigate}
+              />
+            ))}
             {rows(ts, f.id, folderLook.sort, folderLook.limit)}
           </div>
         )}
@@ -2669,49 +3007,78 @@ function Tree(props: PluginThreadListProps) {
         </p>
       )}
       {status === "loading" && <p>{t("Загрузка…")}</p>}
-      {visibleRoots.map((f) => node(f, true))}
-      {projects
-        .filter((p) => !data.roots.some((r) => r.projectId === p.id))
-        .map((p) => {
-          const projectClosed = isProjectClosed(p.id);
-          const projectUnread = threads.some(
-            (t) => t.projectId === p.id && !t.isArchived && !!t.isUnread,
-          );
-          return (
-            <div className="pf-project" key={p.id}>
-              <div className="pf-heading">
-                <button
-                  className={"pf-label" + (projectUnread ? " pf-unread" : "")}
-                  onClick={() => toggle(p.id, projectClosed)}
-                >
-                  <Icon name={projectClosed ? "ChevronRight" : "ChevronDown"} />
-                  <span>{p.isPersonal ? t("Без проекта") : p.name}</span>
-                </button>
-                <button
-                  className="pf-icon"
-                  aria-label={t("Новый чат без проекта")}
-                  onClick={() => {
-                    actions.openNewThread({
-                      projectId: p.id,
-                      focusPrompt: true,
-                    });
-                    props.onNavigate();
-                  }}
-                >
-                  <Icon name="MessageCirclePlus" />
-                </button>
-              </div>
-              {!projectClosed && (
-                <div className="pf-children">
-                  {rows(
-                    threads.filter((t) => t.projectId === p.id),
-                    p.id,
-                  )}
-                </div>
-              )}
+      {topLevel.map((entry) => {
+        if (entry.kind === "root") return node(entry.folder, true);
+        const p = entry.project;
+        const projectClosed = isProjectClosed(p.id);
+        const projectUnread = threads.some(
+          (t) => t.projectId === p.id && !t.isArchived && !!t.isUnread,
+        );
+        const virtualRows = data.externalRows.filter(
+          (row) => row.projectId === p.id,
+        );
+        const projectInFlight =
+          threads.some(
+            (t) => t.projectId === p.id && !t.isArchived && isThreadInFlight(t),
+          ) || virtualRows.some((row) => row.status === "running");
+        return (
+          <div className="pf-project" key={p.id}>
+            <div className="pf-heading">
+              <button
+                className={"pf-label" + (projectUnread ? " pf-unread" : "")}
+                onClick={() => toggle(p.id, projectClosed)}
+              >
+                <Icon
+                  name={projectClosed ? "ChevronRight" : "ChevronDown"}
+                  className="pf-chevron"
+                />
+                <span>{p.isPersonal ? t("Без проекта") : p.name}</span>
+                {projectInFlight && <InFlightSpinner />}
+              </button>
+              <button
+                className="pf-icon"
+                aria-label={t("Новый чат без проекта")}
+                onClick={() => {
+                  actions.openNewThread({
+                    projectId: p.id,
+                    focusPrompt: true,
+                  });
+                  props.onNavigate();
+                }}
+              >
+                <Icon name="MessageCirclePlus" />
+              </button>
             </div>
-          );
-        })}
+            {!projectClosed && (
+              <div className="pf-children">
+                {virtualRows.slice(0, listSettings.limit).map((row) => (
+                  <ExternalRowLink
+                    key={row.id}
+                    row={row}
+                    onNavigate={props.onNavigate}
+                  />
+                ))}
+                {rows(
+                  threads.filter((t) => t.projectId === p.id),
+                  p.id,
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {(hiddenCount > 0 || showHidden) && (
+        <button
+          className="pf-manage"
+          aria-pressed={showHidden}
+          onClick={toggleShowHidden}
+        >
+          <Icon name={showHidden ? "EyeOff" : "Eye"} />
+          {showHidden
+            ? t("Не показывать скрытые")
+            : `${t("Показать скрытые")} (${hiddenCount})`}
+        </button>
+      )}
       <button
         className="pf-manage"
         onClick={() => nav.toPluginPanel("folders")}
