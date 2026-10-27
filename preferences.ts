@@ -65,16 +65,27 @@ export const itemStyleSchema = styleSchema.extend({
   hidden: z.boolean().optional(),
 });
 export type ItemStyle = z.infer<typeof itemStyleSchema>;
+/** Plain patterns also validate at the RPC's JSON Schema boundary. */
+export const startingFolderSchema = z
+  .string()
+  .max(4096)
+  .regex(/^(?:|\/[^\x00-\x1f\x7f]*)(?![\s\S])/);
 export const prefsSchema = z.object({
+  projects: z.object({ startingFolder: startingFolderSchema, checkRepoVisibility: z.boolean().default(false) }).default({
+    startingFolder: "", checkRepoVisibility: false,
+  }),
   chatList: z.object({
     sort: z.enum(CHAT_SORTS),
     limit: z.number().int().min(1).max(100),
     sortSectionsByActivity: z.boolean(),
+    /** «activity»: projects with unread or running chats rise to the top; «manual»: the saved order. */
+    projectOrder: z.enum(["activity", "manual"]),
     autoCollapseInactive: z.boolean(),
     inactiveHours: z.number().min(0.25).max(720),
     inactiveUnit: z.enum(["hours", "days"]),
     hideIdleHours: z.number().min(0).max(720),
     boldUnread: z.boolean(),
+    threadDisplay: z.enum(["classic", "provider-status"]),
   }),
   view: z.object({
     density: z.enum(["comfortable", "compact"]),
@@ -96,15 +107,18 @@ export type Prefs = z.infer<typeof prefsSchema>;
 export type ItemStyles = Record<string, ItemStyle>;
 
 export const defaultPrefs: Prefs = {
+  projects: { startingFolder: "", checkRepoVisibility: false },
   chatList: {
     sort: "activity",
     limit: 10,
     sortSectionsByActivity: true,
+    projectOrder: "activity",
     autoCollapseInactive: true,
     inactiveHours: 2,
     inactiveUnit: "hours",
     hideIdleHours: 48,
     boldUnread: true,
+    threadDisplay: "classic",
   },
   view: { density: "comfortable", indent: 8, showHidden: false },
   appearance: {

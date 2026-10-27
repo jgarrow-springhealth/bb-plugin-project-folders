@@ -18,6 +18,7 @@ import {
   crossProjectAnchors,
   visibleChatRoots,
   folderActivity,
+  threadsToMarkRead,
   INACTIVE_SECTION_THRESHOLD_MS,
   sortFoldersByActivity,
 } from "./chat-list";
@@ -89,6 +90,7 @@ describe("chat list order", () => {
       sort: "title",
       limit: 5,
       autoCollapseInactive: true,
+      threadDisplay: "classic",
     });
     expect(
       parseSettings(
@@ -98,6 +100,7 @@ describe("chat list order", () => {
       sort: "activity",
       limit: 10,
       autoCollapseInactive: false,
+      threadDisplay: "classic",
     });
   });
 });
@@ -508,6 +511,30 @@ describe("auto-collapsing inactive sections", () => {
         now,
       }),
     ).toBe(true);
+  });
+
+  it("keeps manually reordered projects in order when sorting sections by activity", () => {
+    const projects = [
+      { id: "p2", projectId: "p2", parentId: null, sort: 0 },
+      { id: "p1", projectId: "p1", parentId: null, sort: 1 },
+    ];
+    const threads = [
+      {
+        id: "unread-in-p1",
+        projectId: "p1",
+        environment: { id: "env-p1" },
+        isUnread: true,
+      },
+    ];
+    expect(
+      sortFoldersByActivity(projects, {
+        enabled: true,
+        root: true,
+        folders: [],
+        bindings: {},
+        threads,
+      }).map((project) => project.projectId),
+    ).toEqual(["p2", "p1"]);
   });
 
   it("sorts sibling sections by unread reply, then busy, then activity", () => {
@@ -927,5 +954,78 @@ describe("auto-collapsing inactive sections", () => {
         ),
       ).toEqual({ tail: "a" });
     });
+  });
+
+  it("selects unread subtree threads and skips archived and pending interaction", () => {
+    const threads = [
+      {
+        id: "parent-unread",
+        projectId: "p1",
+        environment: { id: "env1" },
+        isUnread: true,
+      },
+      {
+        id: "nested-unread",
+        projectId: "p1",
+        environment: { id: "env2" },
+        isUnread: true,
+      },
+      {
+        id: "archived",
+        projectId: "p1",
+        environment: { id: "env1" },
+        isUnread: true,
+        isArchived: true,
+      },
+      {
+        id: "pending",
+        projectId: "p1",
+        environment: { id: "env1" },
+        isUnread: true,
+        hasPendingInteraction: true,
+      },
+      {
+        id: "read",
+        projectId: "p1",
+        environment: { id: "env1" },
+        isUnread: false,
+      },
+      {
+        id: "other-project",
+        projectId: "p2",
+        environment: { id: "env1" },
+        isUnread: true,
+      },
+    ];
+    expect(
+      threadsToMarkRead({
+        folderId: "sec1",
+        projectId: "p1",
+        root: false,
+        folders,
+        bindings,
+        threads,
+      }).map((t) => t.id),
+    ).toEqual(["parent-unread", "nested-unread"]);
+    expect(
+      threadsToMarkRead({
+        folderId: "sub1",
+        projectId: "p1",
+        root: false,
+        folders,
+        bindings,
+        threads,
+      }).map((t) => t.id),
+    ).toEqual(["nested-unread"]);
+    expect(
+      threadsToMarkRead({
+        folderId: "p1",
+        projectId: "p1",
+        root: true,
+        folders,
+        bindings,
+        threads,
+      }).map((t) => t.id),
+    ).toEqual(["parent-unread", "nested-unread"]);
   });
 });

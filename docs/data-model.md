@@ -2,7 +2,7 @@
 title: Data model
 type: data-model
 created: 2026-09-27
-updated: 2026-09-30
+updated: 2026-10-26
 status: active
 confidence: medium
 tags: [data-model, sqlite, persistence]
@@ -19,14 +19,18 @@ sources:
   - appearance.tsx
   - chat-list.ts
   - export-queue.ts
+  - cache-keepalive.ts
+  - backup.ts
+  - section-remove.ts
+  - auto-archive.ts
 ---
 # Data model
 
-TL;DR: The plugin stores a normalized section tree plus JSON settings and operation journals in BB’s SQLite plugin database; BB remains the owner of projects, threads, environments and canonical chat history (`server.ts:684-718`, `server.ts:1770-1783`).
+TL;DR: The plugin stores a normalized section tree plus JSON settings and operation journals in BB’s SQLite plugin database; BB remains the owner of projects, threads, environments and canonical chat history (`server.ts:730-771`, `server.ts:1947-1962`).
 
 ## Schema overview
 
-The lines below show logical relations encoded by IDs and JSON payloads. The migration creates primary keys and a uniqueness constraint on section paths, but declares no SQL foreign-key constraints (`server.ts:684-718`).
+The lines below show logical relations encoded by IDs and JSON payloads. The migration creates primary keys and a uniqueness constraint on section paths, but declares no SQL foreign-key constraints (`server.ts:730-771`).
 
 ```mermaid
 erDiagram
@@ -38,6 +42,7 @@ erDiagram
   threads ||--o| thread_moves : moves
   threads ||--o| thread_places : listed
   threads ||--o| pending_exports : queued
+  threads ||--o| thread_keepalive : keepalive
   folders ||--o{ folder_archives : archived_as
   projects ||--o{ project_moves : moves
   folders {
@@ -118,9 +123,16 @@ erDiagram
   pending_exports {
     TEXT threadId PK
   }
+  thread_keepalive {
+    TEXT threadId PK
+    INTEGER idleAt
+    INTEGER wakes
+    INTEGER updatedAt
+    INTEGER lastPingAt
+  }
 ```
 
-Project and thread IDs in these tables point to BB-owned entities; the BB records are not plugin-created tables (`server.ts:684-718`).
+The plugin migrations create the tables documented here. Their `projectId` and `threadId` values store BB SDK entity IDs, which move and placement handlers resolve through BB's project and thread APIs (`server.ts:735-771`, `project-move.ts:54-63`, `server.ts:2297-2305`).
 
 ## Archive store coordinator
 
@@ -143,7 +155,7 @@ The coordinator receives no cleanup policy for completed rows here; restore/dele
 
 ## Tables
 
-All table declarations and primary keys are in the plugin migration (`server.ts:684-718`). `data` columns contain JSON described by the owning domain types.
+All table declarations and primary keys are in the plugin migration (`server.ts:730-771`). `data` columns contain JSON described by the owning domain types.
 
 ### `folders`
 
@@ -160,7 +172,7 @@ Purpose: Section and group tree nodes for BB projects.
 | `sort` | Sibling ordering integer | Default `0` |
 | `kind` | `folder` or `group` | Default `folder` |
 
-Writers: section creation, group creation, move/repath, archive restore and reorder handlers (`server.ts:1657-1729`, `server.ts:2152-2178`, `section-move.ts:294-309`, `archive.ts:439-453`, `server.ts:3089-3135`). Readers: tree/list, section environment validation, move/archive logic and appearance rules (`server.ts:778-790`, `server.ts:3485-3535`, `archive.ts:63-95`).
+Writers: section creation, group creation, move/repath, archive restore and reorder handlers (`server.ts:1774-1851`, `server.ts:2248-2275`, `section-move.ts:305-320`, `archive.ts:439-453`, `server.ts:3249-3295`). Readers: tree/list, section environment validation, move/archive logic and appearance rules (`server.ts:859-883`, `server.ts:3697-3757`, `archive.ts:63-95`).
 
 ### `folder_rules`
 
@@ -175,15 +187,15 @@ Purpose: Per-section rules mode and template configuration.
 | `customTarget` | Where custom text goes | `file`, `session`, `both`; default `file` |
 | `startup` | One-time first-message text | UTF-8 text, max 4,000 at RPC |
 
-Writers/readers: rules settings handlers store/read by `folderId`; apply/startup paths read the row (`server.ts:970-975`, `server.ts:2818-2866`, `server.ts:2890-2929`, `server.ts:3137-3160`).
+Writers/readers: rules settings handlers store/read by `folderId`; apply/startup paths read the row (`server.ts:1003-1008`, `server.ts:2851-2899`, `server.ts:2923-2962`, `server.ts:3170-3193`).
 
 Mode lifecycle (the same transition behavior applies to `project_rules.mode`):
 
 | From | To | Function and condition |
 |---|---|---|
-| absent or any saved mode | `manual` | `rules_settings_save` persists the selection and returns before template/custom block writes (`server.ts:2890-2929`) |
-| absent or any saved mode | `inherit` | Saves mode; updates/removes the custom file block, while the effective template resolves through inheritance (`server.ts:996-1011`, `server.ts:2890-2953`) |
-| absent or any saved mode | `custom` | Saves mode and stamps the selected project/section template plus file-targeted custom block (`server.ts:2890-2948`) |
+| absent or any saved mode | `manual` | `rules_settings_save` stores the selected rule row and returns before file writes (`server.ts:3051-3090`) |
+| absent or any saved mode | `inherit` | Saves the selected mode, then updates/removes custom file blocks; effective templates resolve from the nearest custom section or project template (`server.ts:3051-3062`, `server.ts:3110-3114`, `server.ts:1105-1128`) |
+| absent or any saved mode | `custom` | Saves the selected mode and writes the selected template; custom text goes to files only when `customTarget` includes `file` (`server.ts:3051-3085`, `server.ts:3057-3062`, `server.ts:3097-3109`) |
 
 ### `project_rules`
 
@@ -199,7 +211,7 @@ Purpose: Project-root rules plus project and section template defaults.
 | `customTarget` | Where custom text goes | `file`, `session`, `both`; default `file` |
 | `startup` | One-time first-message text | UTF-8 text, max 4,000 |
 
-Writers/readers: project rules settings handlers and inherited template/rule resolvers (`server.ts:900-912`, `server.ts:2760-2800`, `server.ts:1630-1740`).
+Writers/readers: project rules settings handlers and inherited template/rule resolvers (`server.ts:933-945`, `server.ts:2793-2833`, `server.ts:1663-1773`).
 
 ### `project_order`
 
@@ -210,29 +222,43 @@ Purpose: Persist ordering of project rows.
 | `projectId` | BB project ID | Primary key |
 | `sort` | Zero-based display order | Integer |
 
-Writers: `reorder` handler; readers: project tree loader (`server.ts:1358-1384`, `server.ts:2971-2977`).
+Writers: `reorder` handler; readers: project tree loader (`server.ts:3249-3295`, `server.ts:1543-1572`).
 
 ### `preferences`
 
-Purpose: Shared UI preferences and migrated global agent settings.
+Purpose: Shared UI preferences, migrated global agent settings, cache keepalive configuration and automatic chat-archive settings.
 
 | Field | Meaning | Key / allowed values |
 |---|---|---|
-| `key` | Record family | `ui` for current UI preferences; `agents` for legacy migrated settings |
+| `key` | Record family | `ui` for current UI preferences; `agents` for migrated shared agent settings; `cache_keepalive` for Claude prompt-cache keepalive settings; `auto_archive` for automatic chat-archive settings |
 | `data` | JSON preference payload | Parsed/validated by the relevant schema |
 
-Writers: preference save and legacy migration; readers: preferences and rule configuration loaders (`server.ts:748-760`, `server.ts:3168-3201`). UI fields and defaults are defined in `preferences.ts:66-115`.
+Writers: preference save, legacy migration, cache keepalive settings save and auto-archive settings save; readers: preferences, rule configuration, keepalive configuration and auto-archive configuration loaders (`server.ts:796-809`, `server.ts:3562-3577`). Auto-archive data is `{enabled, days}`; field constraints and defaults are documented in [Section archive and restore](features/archive-and-restore.md#automatic-chat-archiving) (`auto-archive.ts:3-12`).
+
+### `thread_keepalive`
+
+Purpose: Persist each thread’s idle timestamp and wake counter for cache keepalive scheduling.
+
+| Field | Meaning | Key / allowed values |
+|---|---|---|
+| `threadId` | BB thread whose keepalive state is tracked | Primary key; BB thread ID |
+| `idleAt` | Millisecond timestamp that starts the current idle spell | Integer timestamp; `0` is the initial sentinel |
+| `wakes` | Keepalive turns sent during the idle spell | Non-negative integer; reset to zero on a real idle event |
+| `updatedAt` | Millisecond timestamp of the last keepalive-state write | Integer timestamp |
+| `lastPingAt` | Time the coordinator last attempted to send a keepalive ping | Nullable integer timestamp in milliseconds; written before `threads.send`, and read by `getLastPingAt` (`server.ts:775`, `cache-keepalive.ts:125-135`, `cache-keepalive.ts:365-382`) |
+
+Lifecycle: a real `thread.idle` event sets `idleAt` and resets `wakes`; an idle event following a keepalive ping updates `idleAt` and preserves `wakes`; each attempted ping updates `lastPingAt`; `thread.archived` and `thread.deleted` remove the row (`cache-keepalive.ts:211-229`, `cache-keepalive.ts:365-382`, `server.ts:793-795`). Writers are the SQLite keepalive store; the sweep reads idle time and wake count, and the store exposes `lastPingAt` through `getLastPingAt` (`cache-keepalive.ts:93-135`, `cache-keepalive.ts:258-363`).
 
 ### `item_styles`
 
-Purpose: Per-project and per-section appearance, sort and chat-limit overrides.
+Purpose: Per-project and per-section appearance, tree visibility, sort and chat-limit overrides.
 
 | Field | Meaning | Key / allowed values |
 |---|---|---|
 | `key` | Item identity | `p:<projectId>` or `f:<folderId>` |
-| `data` | JSON style object | Icon, color, fill, cascade, sort, limit |
+| `data` | JSON style object | Icon, color, fill, cascade, hidden flag, sort, limit |
 
-Writers: `prefs_save` bulk replacement and `item_style_save`; readers: app appearance resolver (`server.ts:3170-3211`, `preferences.ts:53-64`, `appearance.tsx:439-447`).
+Writers: `prefs_save` bulk replacement and `item_style_save`; readers: app appearance resolver (`server.ts:3512-3538`, `preferences.ts:53-64`, `appearance.tsx:439-447`).
 
 ### `thread_places`
 
@@ -244,7 +270,7 @@ Purpose: Manual tree filing for a chat when its working directory differs from t
 | `projectId` | BB project containing the thread | Logical reference |
 | `folderId` | Section ID; `NULL` means project root | Logical `folders.id` |
 
-Writers: `thread_place`; readers: list response and chat tree association (`server.ts:1960-1973`, `server.ts:2140-2165`, `chat-list.ts:251-263`). Stale `folderId` rows are removed by cleanup (`server.ts:2282-2317`).
+Writers: `thread_place` and `thread_place_clear`; readers: the list response and chat tree association (`server.ts:2279-2307`, `server.ts:2495-2499`, `chat-list.ts:251-263`). During list assembly, a row whose non-null `folderId` no longer exists in `folders` is deleted before placements are read (`server.ts:2490-2499`).
 
 ### `execution_defaults`
 
@@ -255,7 +281,7 @@ Purpose: Per-scope new-chat defaults for model, permission mode and native agent
 | `key` | Scope key | `g`, `p:<projectId>`, `f:<folderId>` |
 | `data` | JSON `Execution` payload | Provider/model, reasoning, service tier, permissions, agent pin |
 
-Writers/readers: execution save/read functions; project/folder cleanup removes matching keys (`server.ts:1012-1025`, `server.ts:1897-1909`). Payload constraints and enum values: `execution.ts:13-55`.
+Writers/readers: execution save/read functions; project/folder cleanup removes matching keys (`server.ts:1166-1182`, `server.ts:2074-2091`). Payload constraints and enum values: `execution.ts:14-70`.
 
 ### `session_policies`
 
@@ -266,7 +292,7 @@ Purpose: Per-scope filters and switches for agent session context.
 | `key` | Scope key | `g`, `p:<projectId>`, `f:<folderId>` |
 | `data` | JSON session policy | Four filters and three optional switches; filters `all`, `allow`, `deny` |
 
-Writers: session policy save deletes empty payloads or upserts normalized JSON; readers: editor and per-thread core resolver (`session-policy-server.ts:70-95`, `session-policy-server.ts:102-150`). Schema and limits: `session-policy.ts:16-30`, `session-policy.ts:62-79`.
+Writers: session policy save deletes empty payloads or upserts normalized JSON; readers: editor and per-thread core resolver (`session-policy-server.ts:77-102`, `session-policy-server.ts:109-157`). Schema and limits: `session-policy.ts:16-30`, `session-policy.ts:62-79`.
 
 ### `folder_archives`
 
@@ -286,10 +312,10 @@ State lifecycle:
 | `archiving` | `archived` | Files/chats complete, folder/path rows are removed and the error is cleared (`archive.ts:360-370`) |
 | `archiving` | `archiving` + error | Any operation failure stores its message and publishes a change for retry (`archive.ts:371-375`) |
 | `archived` | `restoring` | `restore` begins a restore operation (`archive.ts:349-391`) |
-| `restoring` | removed | Restore completes and deletes the archive row (`archive.ts:409-423`) |
+| `restoring` | removed | Restore has recreated tree/path rows and unarchived the saved chats, then deletes the archive row (`archive.ts:439-457`) |
 | `restoring` | `restoring` + error | Failed restore stores the error and leaves the journal retryable (`archive.ts:459-463`) |
 
-Writers/readers: `makeArchives` writes and parses manifests; project/section moves rebase paths; project deletion removes owned manifests (`archive.ts:63-72`, `project-move.ts:123-145`, `server.ts:1971-1974`).
+Writers/readers: `makeArchives` writes and parses manifests; project/section moves rebase paths; project deletion removes owned manifests (`archive.ts:63-72`, `project-move.ts:123-145`, `server.ts:2092-2095`).
 
 ### `project_moves`
 
@@ -300,7 +326,7 @@ Purpose: Retry journal for project-root relocation.
 | `id` | Move journal ID | Primary key |
 | `data` | JSON project move | Project/host, source/destination, completion and error details |
 
-State-like lifecycle: journal absent → persisted incomplete move → complete on metadata rebase; failures retain the journal and error (`project-move.ts:18-31`, `project-move.ts:200-240`, `project-move.ts:228-246`). Writers/readers: project move module; project deletion removes matching journals (`server.ts:1915-1922`).
+State-like lifecycle: journal absent → persisted incomplete move → complete on metadata rebase; failures retain the journal and error (`project-move.ts:18-31`, `project-move.ts:200-240`, `project-move.ts:228-246`). Writers/readers: project move module; project deletion removes matching journals (`server.ts:2096-2103`).
 
 ### `section_moves`
 
@@ -311,7 +337,7 @@ Purpose: Retry journal for section folder moves and relinks.
 | `folderId` | Section being moved | Primary key / logical `folders.id` |
 | `data` | JSON move record | Source/destination, completion and error details |
 
-State-like lifecycle: a metadata-only shared-path update writes a completed journal with the path binding; a filesystem move writes an incomplete journal before draining exports, then marks it complete after descendant paths, exports and archive manifests are rebased. A failure after journal creation stores an error for retry (`section-move.ts:227-241`, `section-move.ts:268-273`, `section-move.ts:294-353`). Writers/readers: section move module; project move and project cleanup read/remove journals (`server.ts:1924-1932`).
+State-like lifecycle: a metadata-only shared-path update writes a completed journal with the path binding; a filesystem move writes an incomplete journal before draining exports, then marks it complete after descendant paths, exports and archive manifests are rebased. A failure after journal creation stores an error for retry. If a retry finds the section path already equals its saved destination, it marks that journal complete and clears its error (`section-move.ts:238-252`, `section-move.ts:279-284`, `section-move.ts:305-364`, `section-move.ts:91-100`). Writers/readers: `makeSectionMoves` reads rows for its journal list and writes move updates; project cleanup reads rows to identify and delete journals owned by the removed project (`section-move.ts:24-50`, `server.ts:2094-2101`).
 
 ### `thread_moves`
 
@@ -332,7 +358,7 @@ State-like lifecycle:
 | journal with `asked` | deleted, moved | `finish` sees destination environment after the request turn and moves chat storage (`thread-move.ts:228-269`) |
 | journal with `asked` | deleted, kept | Agent turn ends without the destination environment (`thread-move.ts:243-246`) |
 
-Writers/readers: thread move module; thread dispatch barriers and project/section move checks also inspect it (`thread-move.ts:48-64`, `thread-move.ts:118-168`, `server.ts:1884-1890`).
+Writers/readers: thread move module; thread dispatch barriers and project/section move checks also inspect it (`thread-move.ts:48-64`, `thread-move.ts:118-168`, `server.ts:2126-2181`).
 
 ### `exports`
 
@@ -345,7 +371,7 @@ Purpose: Last chat export path or persisted error.
 | `error` | Last export error | `NULL` on success, error text on failure |
 | `updatedAt` | Last state update, Unix milliseconds | Integer |
 
-State lifecycle: success stores a path and `error=NULL`; a non-transient export error stores `path=NULL` and an error; deleted threads remove the row; error rows older than one hour are pruned during `list` (`server.ts:1840-1844`, `server.ts:1866-1877`, `server.ts:2282-2289`). Writers/readers: export pipeline and move modules that rebase paths (`server.ts:1752-1849`, `section-move.ts:310-317`).
+State lifecycle: success stores a path and `error=NULL`; a non-transient export error stores `path=NULL` and an error; deleted threads remove the row; error rows older than one hour are pruned during `list` (`server.ts:2018-2022`, `server.ts:2044-2058`, `server.ts:2497-2500`). Writers/readers: export pipeline and move modules that rebase paths (`server.ts:1852-2022`, `section-move.ts:321-328`).
 
 ### `pending_exports`
 
@@ -355,21 +381,23 @@ Purpose: Durable queue of chat IDs awaiting automatic export after a plugin relo
 |---|---|---|
 | `threadId` | BB thread awaiting export | Primary key |
 
-Writers: lifecycle enqueue inserts an ID; queue settlement deletes it. Startup reads and resumes rows (`server.ts:3280-3305`). Readers: server startup queue restoration (`server.ts:3280-3305`).
+Writers: lifecycle enqueue inserts an ID; queue settlement deletes it. Startup reads and resumes rows (`server.ts:3658-3673`). Readers: server startup queue restoration (`server.ts:3658-3673`).
 
 ## Invariants
 
-- Folder uniqueness is `(projectId, hostId, path)`; group paths are synthetic and must not be treated as disk paths (`server.ts:686`, `server.ts:2152-2178`).
-- There are no SQL foreign-key constraints; handlers clean dependent records when projects, folders or threads are removed (`server.ts:684-718`, `server.ts:1953-1992`, `server.ts:2282-2317`).
-- Scope keys are shared across execution and session policy: `g`, `p:<projectId>`, `f:<folderId>` (`server.ts:713-716`, `session-policy-server.ts:70-75`).
-- BB owns canonical thread history; the export tables track file snapshots and outcomes only (`server.ts:1770-1783`, `server.ts:1840-1844`).
+- Folder uniqueness is `(projectId, hostId, path)`; group paths are synthetic and must not be treated as disk paths (`server.ts:737`, `server.ts:2248-2275`).
+- There are no SQL foreign-key constraints; handlers clean dependent records when projects, folders or threads are removed (`server.ts:730-771`, `server.ts:2074-2112`, `server.ts:2497-2510`).
+- Execution and session policy use global, project and folder scope keys (`g`, `p:<projectId>`, `f:<folderId>`) (`server.ts:1178-1183`, `session-policy-server.ts:70-75`).
+- BB owns canonical thread history; the export tables track file snapshots and outcomes only (`server.ts:1947-1962`, `server.ts:2018-2022`).
 
 ## Retention and cleanup
 
-- Export errors older than the configured threshold are deleted; thread placements whose folder no longer exists are removed, and BB thread existence is checked (`server.ts:2282-2317`).
-- Project deletion removes its folders, ordering, placements, rules, item style, execution defaults, matching archives and move journals (`server.ts:1953-1992`).
-- Automatic export pending IDs persist so the server can restore queued work on startup; successful/settled work removes the pending row (`server.ts:3280-3305`).
+- Export errors older than the configured threshold are deleted; thread placements whose folder no longer exists are removed (`server.ts:2497-2510`).
+- Project deletion removes its folders, ordering, placements, rules, item style, execution defaults, matching archives and move journals (`server.ts:2074-2112`).
+- Automatic export pending IDs persist so the server can restore queued work on startup; successful/settled work removes the pending row (`server.ts:3658-3673`).
 - Completed archive records remain available for restore until that restore deletes the record (`archive.ts:360-370`, `archive.ts:439-463`).
+- Keepalive state is removed on thread archive or deletion; the feature does not prune rows for other causes (`server.ts:793-795`, `cache-keepalive.ts:197-200`).
+- Full backup includes the `preferences` row holding keepalive configuration, but excludes the separate per-thread `thread_keepalive` table along with transient exports and move journals (`backup.ts:7-28`).
 
 ## Related pages
 
@@ -378,6 +406,8 @@ Writers: lifecycle enqueue inserts an ID; queue settlement deletes it. Startup r
 - [Chat history export](features/chat-history-export.md)
 - [Execution defaults](features/execution-settings.md)
 - [Session context](features/session-context.md)
+- [Prompt cache keepalive](features/cache-keepalive.md)
+- [Appearance and preferences](features/appearance-settings.md)
 
 <!-- lane-pilot:backlinks -->
 ## Referenced by

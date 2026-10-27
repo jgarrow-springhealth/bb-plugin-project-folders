@@ -419,6 +419,8 @@ describe("shared preferences", () => {
       expect(first.stored).toBe(false);
       const prefs = (first as unknown as { prefs: Record<string, any> }).prefs;
       prefs.chatList.limit = 25;
+      prefs.chatList.threadDisplay = "provider-status";
+      prefs.projects.startingFolder = "/work/projects";
       prefs.appearance.levels.project = { icon: "emoji:🚀", color: "blue" };
       await call("prefs_save", { prefs });
       await call("item_style_save", {
@@ -437,6 +439,7 @@ describe("shared preferences", () => {
       };
       expect(next.stored).toBe(true);
       expect(next.prefs.chatList.limit).toBe(25);
+      expect(next.prefs.projects.startingFolder).toBe("/work/projects");
       expect(next.prefs.appearance.levels.project.icon).toBe("emoji:🚀");
       expect(next.items).toEqual({
         "f:x": { color: "#00ff00", cascade: true },
@@ -445,6 +448,19 @@ describe("shared preferences", () => {
       expect(
         ((await call("prefs_get", null)) as { items: object }).items,
       ).toEqual({});
+      for (const startingFolder of ["relative", "/work\n"]) {
+        await expect(
+          call("prefs_save", {
+            prefs: { ...prefs, projects: { startingFolder } },
+          }),
+        ).rejects.toThrow();
+      }
+      Object.assign(h, await h.harness.lifecycle.reload(plugin));
+      const reloaded = (await h.harness.behavior.callRpc("prefs_get", null)) as {
+        prefs: typeof prefs;
+      };
+      expect(reloaded.prefs.projects.startingFolder).toBe("/work/projects");
+      expect(reloaded.prefs.chatList.threadDisplay).toBe("provider-status");
     } finally {
       await h.harness.lifecycle.dispose();
     }
@@ -576,10 +592,8 @@ describe("AGENTS.md template", () => {
       });
       await createSection(h, "Beta");
       expect(agentsWrites(h)).toHaveLength(0);
-      const stub = h.writes.find((w) =>
-        String(w.path).endsWith("/CLAUDE.md"),
-      ) as { content?: string } | undefined;
-      expect(stub?.content).toBe("@AGENTS.md\n");
+      // Claude Code reads AGENTS.md itself: no CLAUDE.md bridge is created.
+      expect(h.writes.filter((w) => String(w.path).endsWith("/CLAUDE.md"))).toHaveLength(0);
     } finally {
       await h.harness.lifecycle.dispose();
     }
@@ -1194,11 +1208,8 @@ describe("AGENTS.md template", () => {
       const claude = h.writes.filter((w) =>
         String(w.path).endsWith("/work/CLAUDE.md"),
       );
-      expect(claude.length).toBeGreaterThanOrEqual(1);
-      // The final CLAUDE.md state is the one-line bridge to AGENTS.md.
-      expect(String((claude.at(-1) as { content: string }).content)).toBe(
-        "@AGENTS.md\n",
-      );
+      // The project has no CLAUDE.md: the custom rule goes to AGENTS.md only, none is created.
+      expect(claude).toHaveLength(0);
       const rootAgents = h.writes.filter(
         (w) => String(w.path) === "/work/AGENTS.md",
       );
@@ -1211,7 +1222,7 @@ describe("AGENTS.md template", () => {
     }
   });
 
-  it("stamps a custom project template into AGENTS.md and bridges CLAUDE.md on every copy", async () => {
+  it("stamps a custom project template into AGENTS.md on every copy and writes no CLAUDE.md bridge", async () => {
     const { h } = await twoDeviceSetup();
     try {
       await h.harness.behavior.callRpc("copy_add", {
@@ -1234,18 +1245,14 @@ describe("AGENTS.md template", () => {
         expect(String((w as { content: string }).content)).toContain(
           "# Шаблон SelfyStudio",
         );
-      const bridges = h.writes.filter((w) =>
-        String(w.path).endsWith("CLAUDE.md"),
-      );
-      expect(bridges).toHaveLength(2);
-      for (const w of bridges)
-        expect(String((w as { content: string }).content)).toBe("@AGENTS.md\n");
+      // No CLAUDE.md bridge: an `@AGENTS.md` import above a section's folder is not expanded there.
+      expect(h.writes.filter((w) => String(w.path).endsWith("CLAUDE.md"))).toHaveLength(0);
     } finally {
       await h.harness.lifecycle.dispose();
     }
   });
 
-  it("bridges Claude Code with a CLAUDE.md import without overwriting an existing one", async () => {
+  it("creates no CLAUDE.md for a new section and leaves an existing one alone (Claude Code reads AGENTS.md itself)", async () => {
     const h = await setup();
     try {
       let claude: string | null = null;
@@ -1258,10 +1265,7 @@ describe("AGENTS.md template", () => {
         return "# Мои правила\n";
       });
       await createSection(h, "Theta");
-      const stub = h.writes.find((w) =>
-        String(w.path).endsWith("/CLAUDE.md"),
-      ) as { content?: string } | undefined;
-      expect(stub?.content).toBe("@AGENTS.md\n");
+      expect(h.writes.filter((w) => String(w.path).endsWith("/CLAUDE.md"))).toHaveLength(0);
       claude = "@AGENTS.md\n";
       await createSection(h, "Iota");
       expect(
@@ -2426,7 +2430,7 @@ describe("githubUrl on list", () => {
       agentSkillIds: ["project-folders"],
       experimental_hostEntry: true,
       experimental_callHostRpc: async (call) => {
-        if (call.method !== "github_remotes")
+        if (call.method !== "repo_remotes")
           throw new Error(`unexpected ${call.method}`);
         const paths = (call.input as { paths: string[] }).paths;
         calls.push({ method: call.method, paths });

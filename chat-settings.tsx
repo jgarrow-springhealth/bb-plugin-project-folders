@@ -96,6 +96,48 @@ export function ChatSettings() {
         )}
       >
         <SettingRow
+          label={t("Стиль отображения чатов")}
+          hint={t(
+            "Показывать провайдера и текущий статус рядом с названием чата. Обычный вариант оставляет прежний вид списка.",
+          )}
+          htmlFor="pf-set-thread-display"
+        >
+          <select
+            id="pf-set-thread-display"
+            className="pf-sinput"
+            value={settings.threadDisplay}
+            onChange={(e) =>
+              update({
+                threadDisplay: e.target.value as ChatList["threadDisplay"],
+              })
+            }
+          >
+            <option value="classic">{t("Обычный")}</option>
+            <option value="provider-status">{t("Провайдер и статус")}</option>
+          </select>
+        </SettingRow>
+        <SettingRow
+          label={t("Порядок проектов")}
+          hint={t(
+            "«Активные сверху»: проект с непрочитанным ответом или работающим чатом поднимается выше. «Ручной порядок»: проекты стоят так, как вы их расставили.",
+          )}
+          htmlFor="pf-set-project-order"
+        >
+          <select
+            id="pf-set-project-order"
+            className="pf-sinput"
+            value={settings.projectOrder}
+            onChange={(e) =>
+              update({
+                projectOrder: e.target.value as ChatList["projectOrder"],
+              })
+            }
+          >
+            <option value="activity">{t("Активные сверху")}</option>
+            <option value="manual">{t("Ручной порядок")}</option>
+          </select>
+        </SettingRow>
+        <SettingRow
           label={t("Поднимать разделы с активными чатами")}
           hint={t(
             "Раздел с непрочитанным ответом поднимается выше всех. Дальше идут разделы, где идёт работа, затем по свежести. Выключено — ручной порядок.",

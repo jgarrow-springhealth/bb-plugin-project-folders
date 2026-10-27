@@ -1,5 +1,19 @@
 // English fallback and Russian translation catalog. User content is never translated.
 export const english = {
+  "Проверять видимость репозиториев": "Check repository visibility",
+  "Выключено по умолчанию. Анонимно отправляет только владельца и имя репозитория в API GitHub, GitLab или Bitbucket для значка замка. Кеш — 30 минут; локальные пути и учётные данные не отправляются.": "Off by default. Sends only the repository owner and name anonymously to the GitHub, GitLab or Bitbucket API for a lock badge. Cached for 30 minutes; local paths and credentials are never sent.",
+  "Приватный или недоступный репозиторий": "Private or unavailable repository",
+  "Открыть приватный или недоступный репозиторий": "Open private or unavailable repository",
+
+  "Начальная папка для новых проектов.": "Starting folder for new projects.",
+  "Новые проекты": "New projects",
+  "Начальная папка нового проекта": "New project starting folder",
+  "Абсолютный путь на выбранном устройстве. Пустое поле — домашняя папка устройства.":
+    "Absolute path on the selected device. Leave blank to use the device’s home folder.",
+  "Укажите абсолютный путь без управляющих символов или оставьте поле пустым.":
+    "Enter an absolute path without control characters (up to 4096 characters), or leave blank.",
+  "Начальная папка недоступна. Используется домашняя папка выбранного устройства.":
+    "The starting folder is unavailable. Using the selected device’s home folder.",
   "Скрыть из дерева": "Hide from the tree",
   "Показать в дереве": "Show in the tree",
   "Показывать скрытые проекты и разделы": "Show hidden projects and sections",
@@ -91,12 +105,19 @@ export const english = {
   Закрепить: "Pin",
   "Отметить прочитанным": "Mark as read",
   "Отметить непрочитанным": "Mark as unread",
+  "Прочитать всё": "Mark all as read",
   "В архив": "Archive",
   "Удалить…": "Delete…",
   "Новый чат": "New chat",
   "Открыть репозиторий GitHub": "Open GitHub repository",
   "Открыть приватный репозиторий GitHub": "Open private GitHub repository",
   "Приватный репозиторий GitHub": "Private GitHub repository",
+  "Открыть репозиторий GitLab": "Open GitLab repository",
+  "Открыть приватный репозиторий GitLab": "Open private GitLab repository",
+  "Приватный репозиторий GitLab": "Private GitLab repository",
+  "Открыть репозиторий Bitbucket": "Open Bitbucket repository",
+  "Открыть приватный репозиторий Bitbucket": "Open private Bitbucket repository",
+  "Приватный репозиторий Bitbucket": "Private Bitbucket repository",
   "Без проекта": "No project",
   "Новый чат без проекта": "New chat without a project",
   "Управление разделами": "Manage sections",
@@ -114,11 +135,24 @@ export const english = {
     "Sections are project folders. Chat history and supporting files are stored in the hidden folder",
   "каждого раздела.": "inside each section.",
   "Дерево папок и чатов": "Folder and chat tree",
+  "Сортировка": "Sorting",
   "Сортировка чатов": "Chat sorting",
   "Сортировка разделов": "Section sorting",
   "Активные сверху": "Active first",
   "Ручной порядок": "Manual order",
+  "Порядок проектов": "Project order",
+  "«Активные сверху»: проект с непрочитанным ответом или работающим чатом поднимается выше. «Ручной порядок»: проекты стоят так, как вы их расставили.": "“Active first”: a project with an unread reply or a running chat moves up. “Manual order”: projects stay in the order you set.",
   "По активности": "Recent activity",
+  "Стиль отображения чатов": "Thread status display",
+  "Показывать провайдера и текущий статус рядом с названием чата. Обычный вариант оставляет прежний вид списка.":
+    "Show the provider and current status beside each chat title. Classic keeps the existing row appearance.",
+  Обычный: "Classic",
+  "Провайдер и статус": "Provider and status",
+  Сбой: "Failed",
+  "Нужно ваше внимание": "Needs you",
+  Работает: "Working",
+  Непрочитано: "Unread",
+  Неактивен: "Inactive",
   "По алфавиту": "Alphabetical",
   "Сначала новые": "Newest first",
   "Чатов в каждом разделе": "Chats per section",
@@ -144,10 +178,14 @@ export const english = {
   "Свой файл": "Own file",
   "Плагин не вписывает в эти файлы ничего: ни шаблон, ни свои правила.":
     "The plugin writes nothing into these files: no template, no custom rules.",
+  "Файлы ведёте вы: плагин не дописывает в них ни шаблон, ни свои правила.":
+    "You maintain the files: the plugin appends neither the template nor custom rules.",
   "Шаблон берётся из настроек плагина.":
     "The template comes from the plugin settings.",
   "Этот шаблон получают новые подразделы и команда «Применить к существующим разделам» для этого раздела.":
     "New subsections and Apply to existing sections use this template for this section.",
+  "Этот шаблон получают новые подразделы и команда «Применить к существующим разделам» в настройках плагина.":
+    "New subsections and the Apply to existing sections button in plugin settings use this template.",
   "Проекты получают шаблон проектов, разделы любого уровня — шаблон разделов. Текст вписывается в конец AGENTS.md между служебными метками; текст выше меток не меняется.":
     "Projects get the project template, sections of any depth the sections template. The text is appended to the end of AGENTS.md between service markers; content above the markers is never changed.",
   "Применить к существующим разделам": "Apply to existing sections",
@@ -167,6 +205,7 @@ export const english = {
   "В файл": "Into the file",
   "В сессии BB": "Into BB sessions",
   "И туда и туда": "Both",
+  "В файл и в сессию BB": "Into file and BB sessions",
   "Стартовое поручение": "Startup instruction",
   "Постоянные правила этого места: роутинг моделей, делегирование, порядок работы. «В файл» дописывает их в конец AGENTS.md и CLAUDE.md — они действуют и в консоли на машине. «В сессии BB» ничего не пишет на диск: текст попадает в инструкции агента, запущенного из BB, и действует весь разговор.":
     "Standing rules for this place: model routing, delegation, how work is done. “Into the file” appends them to the end of AGENTS.md and CLAUDE.md, so they also apply in a terminal on that machine. “Into BB sessions” writes nothing to disk: the text goes into the instructions of an agent started from BB and holds for the whole conversation.",
@@ -242,6 +281,8 @@ export const english = {
   "Шаблон проекта и свои правила": "Project template & custom rules",
   "Общие для всех машин проекта: применяются к новым разделам и по кнопке «Применить к существующим разделам».":
     "Shared across the project's machines: used for new sections and by Apply to existing sections.",
+  "Общие для всех машин проекта: применяются к новым разделам и по кнопке «Применить к существующим разделам» в настройках плагина.":
+    "Shared across the project's machines: used for new sections and by the Apply to existing sections button in plugin settings.",
   Папки: "Folders",
   Работа: "Work",
   Разработка: "Development",
@@ -397,6 +438,22 @@ export const english = {
     "A new chat created here starts with these settings. A group left off is inherited: the nearest section above, then the project, then the plugin settings, then BB's usual choice.",
   "Свой провайдер и модель": "Own provider and model",
   "Свой режим доступа": "Own permission mode",
+  "Записано в BB: треды без явного провайдера пойдут сюда.":
+    "Saved to BB: chats started without an explicit provider will go here.",
+  "Не записано в BB: у выбранного провайдера нет моста на машине проекта.":
+    "Not saved to BB: the chosen provider has no bridge on the project's machine.",
+  "Не удалось записать в BB:":
+    "Could not save to BB:",
+  "Запомнено в BB:":
+    "Remembered in BB:",
+  "BB ничего не запомнил для проекта.":
+    "BB has nothing remembered for this project.",
+  "У этого провайдера нет моста на машине проекта: треды без явного провайдера упадут.":
+    "This provider has no bridge on the project's machine: chats started without an explicit provider will fail.",
+  "Расходится с настройкой здесь: треды без явного провайдера (bb thread spawn, новый чат вне раздела) пойдут туда.":
+    "Differs from the setting here: chats started without an explicit provider (bb thread spawn, a new chat outside a section) will go there.",
+  "Записать в BB":
+    "Save to BB",
   "Своя среда": "Own environment",
   "Своя машина": "Own machine",
   "неизвестная машина": "unknown machine",
@@ -511,4 +568,51 @@ export const english = {
     "Replace all plugin data with this file? Current sections, rules and archives will be deleted.",
   "Перенос настроек, оформления и всех данных плагина через файл.":
     "Transfer settings, appearance and all plugin data through a file.",
+  "Кеш закреплённых чатов": "Pinned chat cache",
+  "Поддерживать кеш промпта тёплым для закреплённых чатов Claude.":
+    "Keep prompt cache warm for pinned Claude chats.",
+  "Включить продление кеша": "Enable cache keepalive",
+  "Отправляет короткий пинг до истечения часа неактивности.":
+    "Sends a short ping before the one-hour idle prompt cache expires.",
+  "Период пинга, минут": "Ping period, minutes",
+  "Интервал от 3 до 59 минут. По умолчанию 55.":
+    "Interval between 3 and 59 minutes. Default is 55.",
+  "Максимум пробуждений": "Maximum wakes",
+  "Сколько раз продлевать подряд без ответа пользователя. 0 — без ограничений.":
+    "How many times to ping without user reply. 0 means unlimited.",
+  "Работает только для закреплённых чатов Claude. Каждый пинг стоит чтение кеша всего контекста и короткий ответ; это экономит полную перезапись контекста при возвращении через час.":
+    "Works only for pinned Claude chats. Each ping costs a cache read of the whole context plus a short answer; it saves a full prompt write when you return after an hour.",
+  "Другие действия": "More actions",
+  "Действия": "Actions",
+  "Развернуть": "Expand",
+  "Свернуть": "Collapse",
+  "только в сессии BB": "BB sessions only",
+  "В режиме «Свой файл» плагин не пишет в файлы, поэтому свои правила действуют только в сессиях, запущенных из BB.":
+    "In Own file mode the plugin does not write to files, so custom rules only apply in sessions started from BB.",
+  "Например: отвечай по-русски, коммиты — по Conventional Commits":
+    "For example: reply in English, use Conventional Commits",
+  "Например: запусти скилл и пришли текущие задачи":
+    "For example: run the skill and send the current tasks",
+  "Автоархив чатов":
+    "Chat auto-archive",
+  "Убирать в архив BB чаты, в которых давно ничего не происходит.":
+    "Move chats with no recent activity to the BB archive.",
+  "Отправлено в архив: {n}":
+    "Archived: {n}",
+  "Старых чатов нет.":
+    "No old chats.",
+  "Закреплённые, работающие, ждущие ответа и вложенные чаты не трогаются. Проверка раз в час; чат можно вернуть из архива BB.":
+    "Pinned, running, waiting and nested chats are left alone. Checked hourly; a chat can be restored from the BB archive.",
+  "Архивировать старые чаты":
+    "Archive old chats",
+  "Чат уходит в архив, если в нём не было активности N дней.":
+    "A chat is archived after N days without activity.",
+  "Через сколько дней":
+    "After how many days",
+  "От 1 до 365 дней. По умолчанию 7.":
+    "From 1 to 365 days. Default is 7.",
+  "Проверить сейчас":
+    "Check now",
+  "Не ждать часовой проверки.":
+    "Don't wait for the hourly check.",
 } as const;

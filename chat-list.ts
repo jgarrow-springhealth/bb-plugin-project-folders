@@ -3,11 +3,13 @@ export type ChatListSettings = {
   sort: ChatSort;
   limit: number;
   autoCollapseInactive: boolean;
+  threadDisplay: "classic" | "provider-status";
 };
 export const defaults: ChatListSettings = {
   sort: "activity",
   limit: 10,
   autoCollapseInactive: true,
+  threadDisplay: "classic",
 };
 export const INACTIVE_SECTION_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 
@@ -26,6 +28,10 @@ export function parseSettings(raw: string | null): ChatListSettings {
         typeof value.autoCollapseInactive === "boolean"
           ? value.autoCollapseInactive
           : defaults.autoCollapseInactive,
+      threadDisplay:
+        value.threadDisplay === "provider-status"
+          ? "provider-status"
+          : defaults.threadDisplay,
     };
   } catch {
     return defaults;
@@ -673,6 +679,9 @@ export function sortFoldersByActivity<
   const manual = (a: TFolder, b: TFolder) =>
     (a.sort ?? 0) - (b.sort ?? 0) ||
     storedPosition.get(a)! - storedPosition.get(b)!;
+  // The server already returns projects in the order saved by the Configure menu.
+  // Ranking projects by activity is the sidebar's job (see the projectOrder setting).
+  if (params.root) return list;
   if (!params.enabled) return list.sort(manual);
   return list.sort((a, b) => {
     const sa = folderActivity({
@@ -759,4 +768,35 @@ export function hasFolderInFlight<T extends ChatThread>(params: {
         places,
       );
   return scoped.some((t) => !t.isArchived && isThreadInFlight(t));
+}
+
+/** Unread chats in a subtree that can be marked read (not archived, not waiting). */
+export function threadsToMarkRead<T extends ChatThread>(params: {
+  folderId: string;
+  projectId: string;
+  root: boolean;
+  folders: readonly {
+    id: string;
+    projectId: string;
+    parentId: string | null;
+  }[];
+  bindings: Record<string, string>;
+  places?: Record<string, string>;
+  threads: readonly T[];
+}): T[] {
+  const { folderId, projectId, root, folders, bindings, places, threads } =
+    params;
+  const sectionThreads = root
+    ? threads.filter((t) => t.projectId === projectId)
+    : collectFolderThreads(
+        folderId,
+        projectId,
+        folders,
+        bindings,
+        threads,
+        places,
+      );
+  return sectionThreads.filter(
+    (t) => !t.isArchived && !!t.isUnread && !t.hasPendingInteraction,
+  );
 }

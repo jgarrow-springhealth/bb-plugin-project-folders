@@ -38,16 +38,22 @@
   width: 18px;
   height: 18px;
 }
-.pf-github {
-  border-radius: 7px;
+.pf-repo { position: relative; width: 14px; height: 14px; border-radius: 4px; }
+.pf-repo svg { width: 14px; height: 14px; }
+.pf-repo .pf-repo-lock {
+  position: absolute; inset-inline-end: -4px; bottom: -3px;
+  display: inline-flex; padding: 1px; border-radius: 3px;
+  background: var(--pk-surface, var(--sidebar, var(--background)));
+  color: var(--pk-text, var(--foreground)); pointer-events: none;
 }
-.pf-github svg {
-  width: 14px;
-  height: 14px;
-}
-.pf-github-private,
-.pf-github-private svg {
-  color: #111;
+.pf-repo .pf-repo-lock svg { width: 8px; height: 8px; }
+.pf-tooltip {
+  z-index: 1000; max-width: min(360px, calc(100vw - 16px)); padding: 5px 9px;
+  border: 1px solid var(--pk-border, var(--border)); border-radius: var(--pk-radius-control, 6px);
+  background: var(--pk-surface, var(--popover, var(--background)));
+  color: var(--pk-text, var(--popover-foreground, var(--foreground)));
+  box-shadow: var(--pk-shadow-raised, 0 8px 24px color-mix(in srgb, var(--foreground) 16%, transparent));
+  font-size: 12px; line-height: 1.4; overflow-wrap: anywhere;
 }
 .pf-label {
   display: flex;
@@ -409,6 +415,27 @@
     0 1px 3px rgba(0, 0, 0, 0.14),
     0 0 0 1px var(--border);
 }
+.pf-tabs-underline {
+  background: transparent;
+  padding: 0;
+  gap: 16px;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  width: 100%;
+}
+.pf-tabs-underline .pf-tab {
+  padding: 8px 2px;
+  border-radius: 0;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+}
+.pf-tabs-underline .pf-tab.pf-selected {
+  background: transparent;
+  box-shadow: none;
+  border-bottom-color: var(--foreground);
+  color: var(--foreground);
+}
 /* A machine tab: the bolt is solid while the machine is connected. */
 .pf-tab.pf-tab-live svg path {
   fill: currentColor;
@@ -571,51 +598,124 @@
 .pf-root-copies .pf-copy-current .pf-copy-path {
   color: var(--foreground);
 }
-.pf-details-actions {
+.pf-details-head {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
   flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.pf-details-head h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pf-details-primary {
+  display: flex;
   gap: 8px;
-  margin-top: 12px;
-  margin-bottom: 4px;
+  flex: none;
 }
-.pf-details-actions .pf-ghost-muted {
-  color: var(--muted-foreground);
+.pf-details {
+  container-type: inline-size;
 }
-.pf-details-actions .pf-ghost-muted:hover {
-  color: var(--foreground);
-}
-.pf-details .pf-agents-rule {
-  margin-top: 16px;
-}
-.pf-details-nav {
-  margin: 4px 0 0;
-}
-.pf-details-nav + .pf-agents-rule {
-  margin-top: 12px;
-}
-.pf-details > .pf-agents-rule h3 {
-  margin: 0 0 10px;
-}
-.pf-copies-list + .pf-details-actions,
-.pf-root-copies + .pf-details-actions {
-  margin-top: 14px;
+.pf-file-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
 }
 .pf-file-editors {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 10px 12px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 12px;
 }
-.pf-file-editors > p {
+.pf-file-editors .pf-field,
+.pf-file-editors .pf-rules {
   margin: 0;
 }
 .pf-file-editors .pf-rules {
-  max-height: 240px;
+  max-height: 11lh;
   overflow: auto;
   resize: vertical;
   field-sizing: fixed;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+.pf-file-editors .pf-rules:focus {
+  mask-image: none;
+}
+.pf-file-editors.pf-expanded .pf-rules {
+  field-sizing: content;
+  max-height: 70vh;
+  mask-image: none;
+}
+.pf-agents-labelrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.pf-agents-labelrow .pf-agents-target {
+  margin: 0;
+}
+.pf-agents-fixed {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.pf-rules-grow {
+  field-sizing: content;
+  min-height: calc(2lh + 22px);
+  max-height: 320px;
+  resize: vertical;
+  margin: 6px 0 14px;
+}
+.pf-save-bar {
+  justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
+  padding: 10px 0;
+  background: var(--background);
+  border-top: 1px solid var(--border);
+}
+.pf-details-nav + .pf-agents-rule {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 14px;
+}
+@container (max-width: 559px) {
+  .pf-details-head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "title more"
+      "actions actions";
+  }
+  .pf-details-head h2 {
+    grid-area: title;
+  }
+  .pf-details-primary {
+    grid-area: actions;
+    display: flex;
+    width: 100%;
+  }
+  .pf-details-primary > [data-radix-menu-trigger],
+  .pf-details-primary > button[aria-label="More actions"],
+  .pf-details-primary > button[aria-label="Другие действия"] {
+    grid-area: more;
+    margin-inline-start: auto;
+  }
+  .pf-file-head .pf-btn-label {
+    display: none;
+  }
 }
 .pf-side-row.pf-drop-above {
   box-shadow: inset 0 2px 0 0 var(--ink);
@@ -684,12 +784,6 @@
 }
 .pf-details h2 {
   margin: 0 0 4px;
-}
-.pf-details-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
 }
 @media (max-width: 860px) {
   .pf-layout {
@@ -1113,6 +1207,24 @@
   color: var(--muted-foreground);
   line-height: 1.6;
   margin: 0 0 10px;
+}
+.pf-exec-bb {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+.pf-exec-bb p {
+  margin: 0;
+}
+.pf-exec-bb-warn {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--pk-warning, var(--warning-text, var(--foreground)));
 }
 .pf-agents-editor {
   display: flex;
@@ -1543,6 +1655,7 @@
 }
 .pf-srow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -1554,6 +1667,7 @@
   padding-top: 2px;
 }
 .pf-srow-text {
+  flex: 1 1 240px;
   min-width: 0;
 }
 .pf-srow-text label {
@@ -2040,4 +2154,71 @@
 }
 .pf-folder-spinner {
   margin-left: 2px;
+}
+
+/* Optional provider/status rows use the host's artwork and theme palette. */
+.pf-provider {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--pk-muted, var(--muted-foreground));
+}
+.pf-provider-icon { width: 16px; height: 16px; }
+.pf-thread-state {
+  flex: none;
+  min-width: 0;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: var(--pk-radius-pill, 999px);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--pk-muted, var(--muted-foreground));
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.pf-state-working { color: var(--pk-info, var(--timeline-accent)); }
+.pf-state-waiting { color: var(--pk-warning, var(--warning-text)); }
+.pf-state-failed { color: var(--pk-danger, var(--destructive)); }
+.pf-state-unread { color: var(--pk-success, var(--success)); }
+
+/* Keep tree geometry independent of theme child-margin overrides. The chat
+   container reserves the parent's chevron column, including Show all. */
+.pf-tree .pf-heading,
+.pf-tree .pf-thread {
+  padding-inline: var(--pf-tree-row-padding, 4px) 1px;
+}
+.pf-tree .pf-label {
+  gap: var(--pf-tree-label-gap, 7px);
+  padding-inline: var(--pf-tree-content-padding, 2px);
+}
+.pf-tree .pf-label .pf-chevron {
+  width: var(--pf-tree-chevron-width, 12px);
+  height: var(--pf-tree-chevron-width, 12px);
+}
+.pf-tree .pf-children {
+  border-inline-start-style: solid;
+  border-inline-start-color: var(--pk-border, var(--border));
+}
+.pf-tree .pf-thread a {
+  padding-inline: var(--pf-tree-content-padding, 2px);
+}
+.pf-tree .pf-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pf-tree-marker-width, 18px);
+}
+.pf-tree .pf-show-more {
+  padding-inline-start: calc(var(--pf-tree-row-padding, 4px) + var(--pf-tree-content-padding, 2px));
+}
+.pf-chats { min-width: 0; }
+
+.pf-tree .pf-show-more svg {
+  width: var(--pf-tree-marker-width, 18px);
+  flex-basis: var(--pf-tree-marker-width, 18px);
 }

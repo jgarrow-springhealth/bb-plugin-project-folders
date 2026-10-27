@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased — Active projects rise to the top
+## Unreleased (fork) — Nested chats and active projects on top of 0.7.8
+
+- **Project order is a setting.** Settings → «Project order» (also in a project row's «Sorting» menu): «Active first» (default) moves a project with an unread reply, a waiting question or a running chat to the top; «Manual order» keeps projects in the order you set, as upstream 0.7.0 does. It is separate from section sorting.
+- In «Provider and status» display mode the provider icon keeps the left slot, so a parent chat's fold toggle sits on the right beside its count.
 
 - **Show hidden from the sidebar.** A button under the tree reads «Show hidden (N)» whenever something is hidden, and flips to «Hide hidden» while hidden items are showing. It is the same setting as on the management page.
 - **Hidden items stay at the bottom, unless they need you.** With «Show hidden» on, hidden projects and sections are listed after the visible ones. A hidden project or section with an unread reply or a running chat is shown even with «Show hidden» off and ranks with the visible ones; it goes back into hiding when the work is done and read.
@@ -10,6 +13,105 @@
 - Projects BB lists without plugin folders are now sorted together with folder projects, so any project with an unread reply, a waiting question or a running chat moves to the top. Before, they always sat below.
 - A running chat means the agent, a workflow or background work is running. Drafts no longer lift a project or section as if they were running.
 - An error or success result you have not opened, and a chat waiting for your answer, count as needing a reply.
+
+## 0.7.8 — The project's provider becomes BB's remembered choice
+
+- Saving «Provider, model and agent» on a project now also writes it into BB's remembered project defaults. A chat created without a provider (`bb thread spawn` without `--provider`, a new chat outside a section) starts on the same provider, model, reasoning and access mode instead of whatever BB remembered last.
+- Only the project level writes: a section pin keeps applying to that section's chats alone, and the plugin-wide default never overwrites every project. A project that inherits the plugin-wide default gets a «Save to BB» button.
+- A provider with no live bridge on the project's machine is never written. The project page warns when BB remembers such a provider (chats without a flag would fail) or something other than the plugin's setting.
+## 0.7.7 — A failed section move no longer locks the project
+
+- If a section move failed but the section already points at its new folder, repeating the move now closes it. Before, the leftover record kept blocking messages in every chat of the project with «The chat section is archived or moving».
+
+## 0.7.6 — Roomier section rows on phones
+
+- On a phone, section rows no longer show the GitHub link and the «New chat» button, so section names stay readable; «New chat» is now the first item of the row's «…» menu.
+
+## 0.7.5 — Auto-archive failed chats too
+
+- Auto-archive now also moves old chats whose last run ended in an error. Running, starting, waiting and pinned chats are still left alone.
+
+## 0.7.4 — Auto-archive old chats
+
+- New settings section "Chat auto-archive": when enabled, chats with no activity for N days (7 by default, 1–365) move to the BB archive. Checked hourly, with an "Archive" button to run it at once.
+- Pinned, running, waiting-for-reply, queued and nested chats are never archived. Archived chats can be restored from the BB archive.
+- Off by default.
+
+## 0.7.3 — Correct chat nesting at every tree depth
+
+- Place project, section and nested-section chats one full level below their parent. Guides align with parent chevrons, and Show all shares the chat marker/text column.
+- Use shared tree geometry so Classic and Provider and status keep the same indentation in Pokecut and Default, including narrow sidebars and zero-indent settings.
+- Add regression coverage for tree geometry, root/section/nested chat containers and preserving an enabled provider/status preference across plugin reloads. Existing saved preferences remain authoritative; Classic is still the default for users who have not enabled the option.
+
+Thank you @TygerKu, @MoYiha, @rigerc and @victorlitvinenko for your contributions to Projects & Sections!
+
+## 0.7.2 — Responsive settings with readable explanations
+
+- Wrap settings controls below their labels when the available pane is narrow, keeping long explanations and Russian labels readable. Verified in the live BB interface at 900px and 390px viewport widths, with Pokecut and Default fallback colors.
+- Includes the 0.7.0 community features and the 0.7.1 status-pill sizing fix. Provider/status display and repository visibility checks remain off by default.
+
+Thank you @TygerKu, @MoYiha, @rigerc and @victorlitvinenko for helping improve Projects & Sections!
+
+## 0.7.1 — Readable status pills in narrow sidebars
+
+- Keep optional chat status pills readable beside long chat titles; only the title shrinks. Found and checked in the live BB sidebar after 0.7.0.
+- Includes the community features from 0.7.0: manual project order, optional native provider icons, new-project starting folder and safer GitLab/Bitbucket links.
+
+Thank you @TygerKu, @MoYiha, @rigerc and @victorlitvinenko for your contributions to Projects & Sections!
+
+## 0.7.0 — Community contributions and safer repository links
+
+- Preserve manually configured project order while activity sorting reorders sections (#3, @TygerKu).
+- Add opt-in provider icons through BB’s native renderer and theme-aware chat status pills; Classic remains the default (#2, @TygerKu; closes #1, @MoYiha). Follow the BB interface language when no plugin language override is saved.
+- Add a starting folder setting for new projects, with same-device home fallback, explicit warnings and protection against stale device responses (#5, @rigerc).
+- Add GitLab.com subgroup and Bitbucket.org repository links and a visible lock badge (#4, @victorlitvinenko). Visibility checks are now off by default, including on existing installations. Anonymous checks send only the canonical repository identity; credentials and local paths are excluded. Redirects are rejected, requests time out after four seconds, and results are cached across devices for 30 minutes with a bounded cache and four concurrent requests. A 404 is labelled “Private or unavailable”.
+- Retain the legacy GitHub host method and folder fields for compatibility. Section removal, move semantics and dependencies are unchanged.
+
+Thank you @TygerKu, @MoYiha, @rigerc and @victorlitvinenko for contributing fixes, ideas and features to Projects & Sections!
+
+## 0.6.37 — Mark all as read and a shorter section menu
+
+- Section, group and project-root menus gain «Прочитать всё»: it marks every unread chat in the subtree (the whole project from the root), skips archived chats and chats waiting for a question or approval, and is hidden when nothing in the subtree is unread.
+- The row context menu keeps essentials and one «Сортировка ›» submenu; appearance, working rules, change path and move to group stay in the Panel «Действия» menu.
+
+## 0.6.36 — No CLAUDE.md bridge: sections get the project's rules again
+
+- The plugin no longer creates a one-line `CLAUDE.md` (`@AGENTS.md`) next to AGENTS.md, does not rewrite the project root's CLAUDE.md when project rules are saved, and adds the custom block only to a CLAUDE.md that already exists.
+- Why: Claude Code 2.1.277+ reads AGENTS.md itself when there is no CLAUDE.md, but it does not expand an `@AGENTS.md` import above the session's folder without an approval a BB session never gets. So the root bridge hid the project's rules from every section chat (seen live in «Клиенты»: a chat in a client folder answered «AGENTS.md is not in my context»; without the root CLAUDE.md it answered from the rules). Existing CLAUDE.md files are left as they are; remove a pure `@AGENTS.md` stub at a project root to let sections see the root rules.
+
+## 0.6.35 — Keepalive ignores far-future queued messages
+
+- Pinned Claude thread prompt cache keepalive no longer gets blocked by queued messages scheduled for after cache expiry (`sendAt >= idleAt + 60 min`).
+- Queued messages due earlier than `idleAt + 60 min` or due immediately continue to block keepalive pings.
+- Skips of pinned Claude threads are logged at debug level with the reason.
+- Implemented `recordPingSent` to record `lastPingAt` in the SQLite-backed store after dispatching keepalive pings.
+
+## 0.6.34 — Lean default AGENTS.md templates
+
+- Shipped lean default `AGENTS.md` templates for projects and sections: trimmed owner-specific workflows (solo development, commit straight to main, unconditional service restart) and generic coding rules, keeping only non-inferable essentials.
+- Removed duplicated `.bb/chats` layout instructions from the default templates in favor of the plugin's session instruction hook.
+
+## 0.6.33 — Stock BB compatibility
+
+- Set `engines.bbPluginSdk` to `>=0.4.104` to reflect experimental SDK features used by composer and server integrations.
+- Prompt cache keepalive is now opt-in (`enabled: false` by default) and uses a language-neutral keepalive ping prompt.
+- Hardened `message.dispatch` hook: evaluates thread relocation barrier efficiently without serializing full blocks unless blocked, and safely falls back to proceed on internal bookkeeping errors.
+
+## 0.6.32 — Project and section card redesign
+
+- Clear card header with primary actions («Новый чат», «Новый раздел») and a ⋯ menu holding secondary actions, with «Удалить» placed last in destructive style after a separator.
+- Underline navigation tabs for «Правила / Провайдер / Контекст сессии».
+- Sticky dirty-driven save bar for the rules tab in all modes, fixing custom rules and startup instruction saving in «Свой файл» mode.
+- Collapsible AGENTS.md / CLAUDE.md file editors with ~11-line collapsed preview, fade, auto-expansion on edit, and collapse on host switch.
+- Auto-growing textareas for «Свой шаблон», «Свои правила» and «Стартовое поручение».
+- «Куда применять» moved to the «Свои правила» label row, showing static text with help in «Свой файл» mode.
+
+## 0.6.31 — Keep prompt cache warm for pinned threads
+
+- Pinned idle Claude threads get a short keepalive turn before their prompt cache expires (configurable in plugin settings: enabled, period 3–59 min, max wakes).
+- The wake counter resets after a real idle and counts keepalive turns.
+- Pings never override the thread's model, permission mode or reasoning level, and do not trigger on unpinned, archived, active or non-Claude threads.
+
 
 ## 0.6.30 — Machine names in Own machine
 

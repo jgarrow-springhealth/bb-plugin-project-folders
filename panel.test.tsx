@@ -2,6 +2,7 @@
 import { beforeAll, afterEach, expect, it } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import type { PluginSidebarThread } from "@get-bb/plugin-sdk/app";
 import { installTestMatchMedia, setCompactViewport } from "./test-match-media";
 let app: Awaited<ReturnType<typeof loadPluginApp>>;
 beforeAll(async () => {
@@ -49,7 +50,9 @@ it("shows the selected section details with allowed actions", async () => {
   await view.findByDisplayValue("/work/Section");
   expect(view.baseElement.textContent).toContain("New section");
   expect(view.baseElement.textContent).toContain("Rules");
-  expect(view.baseElement.textContent).toContain("Delete");
+  const more = await view.findByRole("button", { name: "More actions" });
+  fireEvent.pointerDown(more, { button: 0, ctrlKey: false, pointerType: "mouse" });
+  expect(await view.findByRole("menuitem", { name: "Delete" })).toBeTruthy();
   view.lifecycle.unmount();
 });
 
@@ -145,7 +148,9 @@ it("opens the working copies dialog from the root details", async () => {
   );
   await view.findAllByText("Project");
   view.getAllByText("Project")[0].click();
-  const copiesButton = await view.findByRole("button", {
+  const more = await view.findByRole("button", { name: "More actions" });
+  fireEvent.pointerDown(more, { button: 0, ctrlKey: false, pointerType: "mouse" });
+  const copiesButton = await view.findByRole("menuitem", {
     name: /Working copies/,
   });
   copiesButton.click();
@@ -375,8 +380,9 @@ it("loads AGENTS.md and CLAUDE.md in the rules dialog Own file tab", async () =>
     },
   );
   await view.findByText("Project");
-  view.getByText("Section").click();
-  fireEvent.click(await view.findByRole("button", { name: "Rules" }));
+  const rowMore = await view.findByRole("button", { name: "Actions: Section" });
+  fireEvent.pointerDown(rowMore, { button: 0, ctrlKey: false, pointerType: "mouse" });
+  fireEvent.click(await view.findByRole("menuitem", { name: "Rules" }));
   const dialog = await view.findByRole("dialog");
   await within(dialog).findByRole("tab", { name: "Own file" });
   expect(
@@ -501,7 +507,9 @@ it("hands a copy to the folder picker and moves the files there", async () => {
   );
   await view.findAllByText("Project");
   view.getAllByText("Project")[0].click();
-  (await view.findByRole("button", { name: /Working copies/ })).click();
+  const more = await view.findByRole("button", { name: "More actions" });
+  fireEvent.pointerDown(more, { button: 0, ctrlKey: false, pointerType: "mouse" });
+  (await view.findByRole("menuitem", { name: /Working copies/ })).click();
   // Each copy shows its path read-only; the folder button opens the picker.
   const pickers = await view.findAllByRole("button", { name: /Choose folder/ });
   expect(view.getByDisplayValue("/srv/project")).toBeTruthy();
@@ -620,7 +628,10 @@ it("lists the plugin settings sections in the tree sidebar and opens them", asyn
   await view.findByText("Project");
   const side = view.baseElement.querySelector(".pf-side")!;
   expect(side.textContent).toContain("Chat list");
+  expect(side.textContent).toContain("Projects");
   expect(side.textContent).toContain("Appearance");
+  fireEvent.click(view.getByRole("button", { name: "Projects" }));
+  await view.findByRole("textbox", { name: "New project starting folder" });
   fireEvent.click(view.getByRole("button", { name: "Section archive" }));
   await view.findByText("Archive is empty");
   view.getByText("Section").click();
@@ -715,7 +726,9 @@ it("shows a group as a folderless card with group actions", async () => {
   view.getByText("Apps").click();
   await view.findByText(/creates no folder/);
   const card = view.baseElement.querySelector(".pf-details")!;
-  expect(card.textContent).toContain("Delete group");
+  const more = await view.findByRole("button", { name: "More actions" });
+  fireEvent.pointerDown(more, { button: 0, ctrlKey: false, pointerType: "mouse" });
+  expect(await view.findByRole("menuitem", { name: "Delete group" })).toBeTruthy();
   expect(card.textContent).not.toContain("Rules");
   expect(card.textContent).not.toContain("New chat");
   view.lifecycle.unmount();
@@ -831,18 +844,28 @@ it("loads the rules of a card opened by deep link, before the tree arrives", asy
   view.lifecycle.unmount();
 });
 
-it("shows a GitHub icon left of new-chat only when githubUrl is set", async () => {
+it("shows a repo icon left of new-chat only when repoUrl is set", async () => {
   const withRepo = {
     ...section,
-    githubUrl: "https://github.com/VKirill/bb-plugin-project-folders",
-    githubPrivate: true,
+    repoUrl: "https://github.com/VKirill/bb-plugin-project-folders",
+    repoProvider: "github" as const,
+    repoPrivate: true,
   };
   const plain = {
     ...section,
     id: "f2",
     name: "Plain",
     path: "/work/Plain",
-    githubUrl: null,
+    repoUrl: null,
+  };
+  const onGitlab = {
+    ...section,
+    id: "f3",
+    name: "Api",
+    path: "/work/Api",
+    repoUrl: "https://gitlab.com/acme/platform/api",
+    repoProvider: "gitlab" as const,
+    repoPrivate: false,
   };
   const group = {
     ...root,
@@ -850,7 +873,7 @@ it("shows a GitHub icon left of new-chat only when githubUrl is set", async () =
     name: "Group",
     path: "@group/g1",
     kind: "group" as const,
-    githubUrl: null,
+    repoUrl: null,
   };
   const view = renderSlot(
     app.threadLists[0]!,
@@ -859,8 +882,8 @@ it("shows a GitHub icon left of new-chat only when githubUrl is set", async () =
       sidebarThreads: { threads: [], projects: [] },
       rpc: {
         list: () => ({
-          folders: [withRepo, plain, group],
-          roots: [{ ...root, githubUrl: null }],
+          folders: [withRepo, plain, onGitlab, group],
+          roots: [{ ...root, repoUrl: null }],
           bindings: {},
           errors: [],
           machines: [{ id: "h1", name: "Mac Mini", connected: true }],
@@ -876,7 +899,16 @@ it("shows a GitHub icon left of new-chat only when githubUrl is set", async () =
   expect(link?.getAttribute("target")).toBe("_blank");
   expect(link?.getAttribute("rel")).toContain("noopener");
   expect(link?.getAttribute("rel")).toContain("noreferrer");
-  expect(link?.classList.contains("pf-github-private")).toBe(true);
+  expect(link?.classList.contains("pf-repo-private")).toBe(true);
+  expect(link?.getAttribute("data-provider")).toBe("github");
+  expect(link?.querySelector(".pf-repo-lock")).toBeTruthy();
+  const gitlab = view.baseElement.querySelector(
+    'a[href="https://gitlab.com/acme/platform/api"]',
+  );
+  expect(gitlab?.getAttribute("data-provider")).toBe("gitlab");
+  expect(gitlab?.getAttribute("aria-label")).toBe("Open GitLab repository");
+  expect(gitlab?.classList.contains("pf-repo-private")).toBe(false);
+  expect(gitlab?.querySelector(".pf-repo-lock")).toBeNull();
   const heading = link?.closest(".pf-heading");
   const plus = heading?.querySelector('button[aria-label="New chat: Section"]');
   expect(plus).toBeTruthy();
@@ -885,8 +917,90 @@ it("shows a GitHub icon left of new-chat only when githubUrl is set", async () =
       [...heading.children].indexOf(link as HTMLElement) <
         [...heading.children].indexOf(plus as HTMLElement),
   ).toBe(true);
-  expect(view.baseElement.querySelectorAll("a.pf-icon")).toHaveLength(1);
+  expect(view.baseElement.querySelectorAll("a.pf-icon")).toHaveLength(2);
   expect(view.getByText("Group")).toBeTruthy();
   expect(view.getByText("Plain")).toBeTruthy();
+  view.lifecycle.unmount();
+});
+
+it("keeps appearance, rules, change path and move to group on the Actions menu", async () => {
+  const view = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc });
+  await view.findByText("Project");
+  const rowMore = await view.findByRole("button", { name: "Actions: Section" });
+  fireEvent.pointerDown(rowMore, { button: 0, ctrlKey: false, pointerType: "mouse" });
+  expect(await view.findByRole("menuitem", { name: "Appearance" })).toBeTruthy();
+  expect(view.getByRole("menuitem", { name: "Rules" })).toBeTruthy();
+  expect(view.getByRole("menuitem", { name: "Change path" })).toBeTruthy();
+  expect(view.queryByRole("menuitem", { name: "Mark all as read" })).toBeNull();
+  view.lifecycle.unmount();
+});
+
+it("marks unread section chats read from the Panel Actions menu", async () => {
+  const unread: PluginSidebarThread = {
+    id: "t1",
+    projectId: "p1",
+    title: "Unread chat",
+    titleFallback: null,
+    parentThreadId: null,
+    sectionId: null,
+    originKind: null,
+    originPluginId: null,
+    providerId: "codex",
+    hasPendingInteraction: false,
+    activity: {
+      workflows: 0,
+      backgroundAgents: 0,
+      backgroundCommands: 0,
+      planMode: 0,
+      goals: 0,
+    },
+    indicator: "none",
+    indicatorLabel: null,
+    isUnread: true,
+    isPinned: false,
+    isArchived: false,
+    environment: {
+      id: "e1",
+      name: null,
+      branchName: null,
+      providerId: null,
+      workspaceDisplayKind: null,
+    },
+    host: { id: "h1", name: "Mini" },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    lastReadAt: Date.now(),
+    latestAttentionAt: Date.now(),
+  };
+  const view = renderSlot(
+    app.navPanels[0]!,
+    { subPath: "" },
+    {
+      sidebarThreads: { threads: [unread], projects: [] },
+      rpc: {
+        ...rpc,
+        list: () => ({
+          ...rpc.list(),
+          bindings: { e1: "f1" },
+        }),
+      },
+    },
+  );
+  await view.findByText("Project");
+  const rowMore = await view.findByRole("button", { name: "Actions: Section" });
+  fireEvent.pointerDown(rowMore, {
+    button: 0,
+    ctrlKey: false,
+    pointerType: "mouse",
+  });
+  fireEvent.click(await view.findByRole("menuitem", { name: "Mark all as read" }));
+  await waitFor(() => {
+    const reads = view.inspection.sidebarActionCalls.filter(
+      (call) => call.method === "setRead",
+    );
+    expect(reads).toEqual([
+      expect.objectContaining({ method: "setRead", threadId: "t1", read: true }),
+    ]);
+  });
   view.lifecycle.unmount();
 });
