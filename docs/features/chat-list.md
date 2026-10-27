@@ -55,6 +55,8 @@ Values and defaults come from `preferences.ts:66-115`; collapsed-list sorting an
 - Unread, pinned, active, busy and active-thread chats bypass idle hiding (`chat-list.ts:146-161`).
 - `isThreadBusy` recognizes active status, non-none indicator, pending interaction and active workflow/background activity (`chat-list.ts:202-220`).
 - A manual placement overrides the section inferred from the chat environment; clearing it restores environment-based placement (`chat-list.ts:251-263`).
+- A child chat nests under its parent when both are in the same list; a same-project child filed in another section stands on its own (`nestChats` in `chat-list.ts`).
+- A chat spawned or forked from a chat in another project is shown under that parent, in the parent's project and section, and its own children follow it; the row carries a folder-out icon naming its own project. Grouping and unread/running indicators use the shown place, while moves still use the chat's own project (`crossProjectAnchors` in `chat-list.ts`, `shownThreads`/`shownPlaces` in `app.tsx`).
 - Chat-list settings are parsed field-by-field with defaults when stored data is invalid (`chat-list.ts:14-32`, `preferences.ts:170-197`).
 
 ## Public API

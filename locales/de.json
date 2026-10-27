@@ -282,6 +282,8 @@
   "У группы нет своей папки: выберите раздел внутри неё.": "Eine Gruppe hat keinen eigenen Ordner: Wählen Sie einen Bereich darin.",
   "Вернуть в рабочую папку": "Zurück in den Arbeitsordner einsortieren",
   "Работает в": "Arbeitet in",
+  "В проекте": "Im Projekt",
+  "В другом проекте": "In einem anderen Projekt",
   "Выберите подраздел этого проекта. Меняется только место в дереве: чат продолжит работать в своей папке.": "Wählen Sie einen Bereich dieses Projekts. Nur der Platz im Baum ändert sich: Der Chat arbeitet weiter in seinem Ordner.",
   "Провайдер, модель и агент": "Anbieter, Modell und Agent",
   "Новый чат, созданный здесь, начинается с этих настроек. Выключенная группа наследуется: ближайший раздел выше, затем проект, затем настройки плагина, затем обычный выбор BB.": "Ein hier erstellter neuer Chat startet mit diesen Einstellungen. Eine ausgeschaltete Gruppe wird vererbt: der nächste Abschnitt darüber, dann das Projekt, dann die Plugin-Einstellungen, dann die übliche Wahl von BB.",

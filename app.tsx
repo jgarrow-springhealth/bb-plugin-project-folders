@@ -49,6 +49,7 @@ import {
 import {
   sortChats,
   nestChats,
+  crossProjectAnchors,
   visibleChatRoots,
   visibleChats,
   isSectionCollapsed,
@@ -1728,6 +1729,7 @@ function ThreadRow({
   onMove,
   onUnplace,
   worksIn,
+  elsewhere,
   onDrag,
   nested,
   childKind,
@@ -1741,6 +1743,8 @@ function ThreadRow({
   onUnplace?: () => void;
   /** The section the chat actually works in, shown when it sits elsewhere. */
   worksIn?: { label: string; path: string };
+  /** Names the chat's own project while it is shown under a chat in another one. */
+  elsewhere?: string;
   onDrag: (thread: PluginSidebarThread | null) => void;
   thread: PluginSidebarThread;
   active: string | null;
@@ -1914,6 +1918,16 @@ function ThreadRow({
           {worksIn && (
             <span className="pf-host-badge" title={worksIn.path}>
               {worksIn.label}
+            </span>
+          )}
+          {elsewhere && (
+            <span
+              className="pf-elsewhere"
+              role="img"
+              aria-label={elsewhere}
+              title={elsewhere}
+            >
+              <Icon name="FolderExport" aria-hidden="true" />
             </span>
           )}
         </a>
@@ -2377,6 +2391,44 @@ function Tree(props: PluginThreadListProps) {
     };
   }, [forkIdsToAsk, rpc]);
   /**
+   * A chat spawned or forked from a chat in another project is shown under
+   * that chat, as BB's own sidebar does, so it takes its anchor's project and
+   * place in the tree. `shownThreads` and `shownPlaces` describe where every
+   * chat is shown; `threads` and `data.places` stay the chats' own, for moves.
+   */
+  const threadById = new Map(threads.map((t) => [t.id, t] as const));
+  const anchors = crossProjectAnchors(
+    threads.map((t) =>
+      !t.parentThreadId && forkSources[t.id]
+        ? { ...t, parentThreadId: forkSources[t.id] }
+        : t,
+    ),
+  );
+  const anchorOf = (chat: PluginSidebarThread) => {
+    const id = anchors.get(chat.id);
+    return id ? threadById.get(id) : undefined;
+  };
+  const shownProjectId = (chat: PluginSidebarThread) =>
+    anchorOf(chat)?.projectId ?? chat.projectId;
+  const shownPlaces: Record<string, string> = anchors.size
+    ? { ...data.places }
+    : data.places;
+  for (const [id, anchorId] of anchors)
+    shownPlaces[id] =
+      placeOf(threadById.get(anchorId)!, data.bindings, data.places) ?? "";
+  const shownThreads = anchors.size
+    ? threads.map((t) =>
+        anchors.has(t.id) ? { ...t, projectId: shownProjectId(t) } : t,
+      )
+    : threads;
+  const shownPlace = (chat: PluginSidebarThread) =>
+    placeOf(chat, data.bindings, shownPlaces);
+  const projectLabel = (projectId: string) => {
+    const p = projects.find((x) => x.id === projectId);
+    if (!p) return t("В другом проекте");
+    return `${t("В проекте")} ${p.isPersonal ? t("Без проекта") : p.name}`;
+  };
+  /**
    * Hidden, and nothing in it needs you. A hidden project or section with an
    * unread reply or a running chat is surfaced and ranked like any other, so
    * work in it is never lost track of.
@@ -2389,8 +2441,8 @@ function Tree(props: PluginThreadListProps) {
       root,
       folders: data.folders,
       bindings: data.bindings,
-      places: data.places,
-      threads,
+      places: shownPlaces,
+      threads: shownThreads,
     }).rank < 2;
   const hiddenCount =
     new Set(
@@ -2583,8 +2635,8 @@ function Tree(props: PluginThreadListProps) {
       root,
       folders: data.folders,
       bindings: data.bindings,
-      places: data.places,
-      threads,
+      places: shownPlaces,
+      threads: shownThreads,
       record: collapseRecords[f.id],
       activeThreadId: props.activeThreadId,
       autoCollapseInactive: listSettings.autoCollapseInactive,
@@ -2623,8 +2675,8 @@ function Tree(props: PluginThreadListProps) {
       root: true,
       folders: data.folders,
       bindings: data.bindings,
-      places: data.places,
-      threads,
+      places: shownPlaces,
+      threads: shownThreads,
     },
   );
   /**
@@ -2666,8 +2718,8 @@ function Tree(props: PluginThreadListProps) {
           root: true,
           folders: data.folders,
           bindings: data.bindings,
-          places: data.places,
-          threads,
+          places: shownPlaces,
+          threads: shownThreads,
         }),
       ]),
     );
@@ -2736,6 +2788,11 @@ function Tree(props: PluginThreadListProps) {
               setMovingChat(chat);
             }}
             worksIn={worksIn(thread)}
+            elsewhere={
+              shownProjectId(thread) === thread.projectId
+                ? undefined
+                : projectLabel(thread.projectId)
+            }
             onUnplace={
               data.places[thread.id] === undefined
                 ? undefined
@@ -2807,8 +2864,8 @@ function Tree(props: PluginThreadListProps) {
         root: false,
         folders: data.folders,
         bindings: data.bindings,
-        places: data.places,
-        threads,
+        places: shownPlaces,
+        threads: shownThreads,
       },
     );
     // Hidden sections shown again sit below the visible ones.
@@ -2819,7 +2876,8 @@ function Tree(props: PluginThreadListProps) {
     const target = { projectId: f.projectId, folderId: root ? null : f.id };
     const ts = threads.filter(
       (t) =>
-        t.projectId === f.projectId && (root ? !place(t) : place(t) === f.id),
+        shownProjectId(t) === f.projectId &&
+        (root ? !shownPlace(t) : shownPlace(t) === f.id),
     );
     const folderClosed = isClosed(f, root);
     const folderUnread = hasFolderUnread({
@@ -2828,8 +2886,8 @@ function Tree(props: PluginThreadListProps) {
       root,
       folders: data.folders,
       bindings: data.bindings,
-      places: data.places,
-      threads,
+      places: shownPlaces,
+      threads: shownThreads,
     });
     const virtualRows = root
       ? data.externalRows.filter((row) => row.projectId === f.projectId)
@@ -2841,8 +2899,8 @@ function Tree(props: PluginThreadListProps) {
         root,
         folders: data.folders,
         bindings: data.bindings,
-        places: data.places,
-        threads,
+        places: shownPlaces,
+        threads: shownThreads,
       }) || virtualRows.some((row) => row.status === "running");
     const folderLook = look(f.projectId, root ? null : f);
     return (
@@ -3011,14 +3069,14 @@ function Tree(props: PluginThreadListProps) {
         if (entry.kind === "root") return node(entry.folder, true);
         const p = entry.project;
         const projectClosed = isProjectClosed(p.id);
-        const projectUnread = threads.some(
+        const projectUnread = shownThreads.some(
           (t) => t.projectId === p.id && !t.isArchived && !!t.isUnread,
         );
         const virtualRows = data.externalRows.filter(
           (row) => row.projectId === p.id,
         );
         const projectInFlight =
-          threads.some(
+          shownThreads.some(
             (t) => t.projectId === p.id && !t.isArchived && isThreadInFlight(t),
           ) || virtualRows.some((row) => row.status === "running");
         return (
@@ -3059,7 +3117,7 @@ function Tree(props: PluginThreadListProps) {
                   />
                 ))}
                 {rows(
-                  threads.filter((t) => t.projectId === p.id),
+                  threads.filter((t) => shownProjectId(t) === p.id),
                   p.id,
                 )}
               </div>

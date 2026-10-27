@@ -15,6 +15,7 @@ import {
   hasFolderInFlight,
   isThreadWorking,
   nestChats,
+  crossProjectAnchors,
   visibleChatRoots,
   folderActivity,
   INACTIVE_SECTION_THRESHOLD_MS,
@@ -869,6 +870,62 @@ describe("auto-collapsing inactive sections", () => {
       expect(
         ids(visibleChatRoots(roots, children, { ...params, limit: 0 })),
       ).toEqual([]);
+    });
+  });
+
+  describe("chats spawned from another project", () => {
+    const chat = (
+      id: string,
+      projectId: string,
+      parentThreadId: string | null = null,
+      extra = {},
+    ) => ({ id, projectId, parentThreadId, ...extra });
+    const entries = (map: Map<string, string>) =>
+      Object.fromEntries([...map.entries()].sort());
+
+    it("follows a parent in another project, with its own children", () => {
+      expect(
+        entries(
+          crossProjectAnchors([
+            chat("lead", "personal"),
+            chat("kid", "repo", "lead"),
+            chat("grandkid", "repo", "kid"),
+            chat("back", "personal", "grandkid"),
+          ]),
+        ),
+      ).toEqual({ back: "lead", grandkid: "lead", kid: "lead" });
+    });
+
+    it("leaves same-project and unlinked chats in their own place", () => {
+      expect(
+        crossProjectAnchors([
+          chat("a", "p1"),
+          chat("a-kid", "p1", "a"),
+          chat("orphan", "p2", "gone"),
+          chat("self", "p2", "self"),
+        ]).size,
+      ).toBe(0);
+    });
+
+    it("stays put when the parent in another project is archived", () => {
+      expect(
+        crossProjectAnchors([
+          chat("lead", "personal", null, { isArchived: true }),
+          chat("kid", "repo", "lead"),
+        ]).size,
+      ).toBe(0);
+    });
+
+    it("keeps every chat in a parent loop in its own place", () => {
+      expect(
+        entries(
+          crossProjectAnchors([
+            chat("a", "p1", "b"),
+            chat("b", "p2", "a"),
+            chat("tail", "p3", "a"),
+          ]),
+        ),
+      ).toEqual({ tail: "a" });
     });
   });
 });

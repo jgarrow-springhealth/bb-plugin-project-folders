@@ -118,3 +118,86 @@ it("nests a fork under the chat it was forked from", async () => {
   expect(asked).toEqual([["fork"]]);
   view.lifecycle.unmount();
 });
+
+it("nests a chat spawned from another project under its parent", async () => {
+  const threads = [
+    {
+      ...base,
+      id: "lead",
+      projectId: "personal",
+      title: "Lead chat",
+      environment: null,
+      updatedAt: 10,
+    },
+    {
+      ...base,
+      id: "kid",
+      projectId: "p1",
+      title: "Spawned chat",
+      parentThreadId: "lead",
+      environment: null,
+      updatedAt: 20,
+    },
+    {
+      ...base,
+      id: "grandkid",
+      projectId: "p1",
+      title: "Grandchild chat",
+      parentThreadId: "kid",
+      environment: null,
+      updatedAt: 30,
+    },
+    {
+      ...base,
+      id: "own",
+      projectId: "p1",
+      title: "Project chat",
+      environment: null,
+      updatedAt: 5,
+    },
+  ];
+  const rpc = {
+    list: () => ({ folders: [], roots: [root], bindings: {}, errors: [] }),
+    prefs_get: () => ({
+      prefs: structuredClone(defaultPrefs),
+      items: {},
+      stored: true,
+    }),
+    fork_sources: () => ({ sources: {} }),
+  };
+  const view = renderSlot(
+    app.threadLists[0]!,
+    { activeThreadId: null, onNavigate() {} },
+    {
+      sidebarThreads: {
+        threads,
+        projects: [
+          { id: "personal", name: "Personal", isPersonal: true },
+          { id: "p1", name: "Project", isPersonal: false },
+        ],
+      },
+      rpc,
+    },
+  );
+  const lead = await waitFor(() => {
+    const el = [...view.container.querySelectorAll(".pf-project")].find((p) =>
+      p.textContent?.includes("Lead chat"),
+    );
+    expect(el).toBeDefined();
+    return el!;
+  });
+  const nested = lead.querySelector(".pf-thread-children");
+  expect(nested?.textContent).toContain("Spawned chat");
+  expect(nested?.textContent).toContain("Grandchild chat");
+  const badges = [...lead.querySelectorAll(".pf-elsewhere")].map((b) =>
+    b.getAttribute("aria-label"),
+  );
+  expect(badges).toEqual(["In project Project", "In project Project"]);
+  const own = [...view.container.querySelectorAll(".pf-project")].find((p) =>
+    p.textContent?.includes("Project chat"),
+  );
+  expect(own).toBeDefined();
+  expect(own).not.toBe(lead);
+  expect(own!.textContent).not.toContain("Spawned chat");
+  view.lifecycle.unmount();
+});

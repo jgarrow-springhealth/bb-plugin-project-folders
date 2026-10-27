@@ -10,6 +10,8 @@ export const english = {
   "Сейчас здесь": "Currently here",
   "Вернуть в рабочую папку": "File back where it works",
   "Работает в": "Works in",
+  "В проекте": "In project",
+  "В другом проекте": "In another project",
   "Выберите подраздел этого проекта. Меняется только место в дереве: чат продолжит работать в своей папке.":
     "Choose a section of this project. Only the place in the tree changes: the chat keeps working in its own folder.",
   "Чат остаётся в своём проекте.": "A chat stays in its own project.",

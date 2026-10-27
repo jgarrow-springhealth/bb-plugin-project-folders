@@ -338,6 +338,12 @@
     var(--border, color-mix(in srgb, currentColor 25%, transparent));
   color: var(--muted-foreground);
 }
+.pf-elsewhere {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--muted-foreground);
+}
 .pf-menu-host {
   color: var(--muted-foreground);
   font-size: 12px;

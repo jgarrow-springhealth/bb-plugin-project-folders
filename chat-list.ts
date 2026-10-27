@@ -218,6 +218,63 @@ export function nestChats<T extends NestableChat>(
   return { roots, children };
 }
 
+/**
+ * Chats shown under a chat in another project, mapped to the chat whose place
+ * in the tree they take.
+ *
+ * A chat spawned or forked from a chat in another project follows that parent
+ * into its project and section, and the chats under it follow along, so the
+ * family stays together the way BB's own sidebar shows it. A chat absent from
+ * the map keeps its own place: that covers top-level chats, a same-project
+ * child (filed in another section it still stands on its own there), a child
+ * whose parent is archived or not in the list, and every chat in a parent loop.
+ */
+export function crossProjectAnchors<
+  T extends NestableChat & { projectId: string; isArchived?: boolean },
+>(chats: readonly T[]): Map<string, string> {
+  const byId = new Map(chats.map((c) => [c.id, c] as const));
+  const inLoop = (chat: T) => {
+    const seen = new Set([chat.id]);
+    for (
+      let cur = chat.parentThreadId ? byId.get(chat.parentThreadId) : undefined;
+      cur;
+      cur = cur.parentThreadId ? byId.get(cur.parentThreadId) : undefined
+    ) {
+      if (seen.has(cur.id)) return cur.id === chat.id;
+      seen.add(cur.id);
+    }
+    return false;
+  };
+  const parentOf = (chat: T) => {
+    const parent = chat.parentThreadId
+      ? byId.get(chat.parentThreadId)
+      : undefined;
+    if (!parent || parent.id === chat.id || parent.isArchived) return undefined;
+    return inLoop(chat) ? undefined : parent;
+  };
+  // The chat whose place `chat` takes; itself when it keeps its own.
+  const memo = new Map<string, string>();
+  const anchorOf = (chat: T): string => {
+    const known = memo.get(chat.id);
+    if (known !== undefined) return known;
+    const parent = parentOf(chat);
+    let anchor = chat.id;
+    if (parent) {
+      const parentAnchor = anchorOf(parent);
+      if (parent.projectId !== chat.projectId || parentAnchor !== parent.id)
+        anchor = parentAnchor;
+    }
+    memo.set(chat.id, anchor);
+    return anchor;
+  };
+  const anchors = new Map<string, string>();
+  for (const chat of chats) {
+    const anchor = anchorOf(chat);
+    if (anchor !== chat.id) anchors.set(chat.id, anchor);
+  }
+  return anchors;
+}
+
 /** Every chat below `chat`, at any depth. */
 export function descendantsOf<T extends NestableChat>(
   chat: T,
