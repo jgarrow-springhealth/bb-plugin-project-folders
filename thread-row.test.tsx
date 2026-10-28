@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, expect, it, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { PluginSidebarThread } from "@get-bb/plugin-sdk/app";
@@ -23,9 +23,15 @@ vi.mock("./prefs-store", () => ({
   }),
 }));
 afterEach(cleanup);
+// Load the app once, outside the tests: a cold import of app.tsx can take
+// longer than the 5s test timeout when the whole suite runs in parallel.
+let app: Awaited<ReturnType<typeof loadPluginApp>>;
+beforeAll(async () => {
+  installTestMatchMedia();
+  app = await loadPluginApp(() => import("./app"));
+}, 30_000);
 it("keeps classic rows by default and shows provider/status when enabled in EN and RU", async () => {
   installTestMatchMedia();
-  const app = await loadPluginApp(() => import("./app"));
   const thread: PluginSidebarThread = {
     id: "t1",
     projectId: "p1",
@@ -119,7 +125,6 @@ it("keeps root, section and nested chat lists and Show all inside their own inde
   installTestMatchMedia();
   state.display = "classic";
   state.limit = 1;
-  const app = await loadPluginApp(() => import("./app"));
   const thread: PluginSidebarThread = {
     id: "t1",
     projectId: "p1",
